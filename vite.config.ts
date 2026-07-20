@@ -4,6 +4,10 @@ import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
+  server: {
+    host: "0.0.0.0",
+    allowedHosts: true,
+  },
   plugins: [
     react(),
     tailwindcss(),

@@ -10,11 +10,12 @@
 const WAVEFORM_LENGTH = 160;
 const SAMPLES_PER_TICK = 3;
 
-export type WaveColor = "listening" | "connecting";
+export type WaveColor = "listening" | "connecting" | "recording";
 
 const COLORS: Record<WaveColor, { fill: string; stroke: string }> = {
   listening: { fill: "rgba(34,197,94,0.1)", stroke: "#22c55e" }, // green-500
   connecting: { fill: "rgba(234,179,8,0.1)", stroke: "#eab308" }, // yellow-500
+  recording: { fill: "rgba(245,158,11,0.12)", stroke: "#f59e0b" }, // amber-500 (offline capture)
 };
 
 export class WaveformViz {
