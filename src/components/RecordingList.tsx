@@ -13,7 +13,7 @@ import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { MicIcon, RefreshIcon, WifiIcon, WifiOffIcon } from "./icons";
 
 export function RecordingList() {
-  const { recordings, stages, transcribeOne, transcribeAllPending, remove } =
+  const { recordings, stages, activeIds, transcribeOne, transcribeAllPending, remove } =
     useRecordings();
   const isOnline = useOnlineStatus();
 
@@ -99,6 +99,7 @@ export function RecordingList() {
           recording={rec}
           isOnline={isOnline}
           stage={stages[rec.id]}
+          isActive={activeIds.includes(rec.id)}
           onTranscribe={(id) => void transcribeOne(id)}
           onDelete={(id) => void remove(id)}
         />

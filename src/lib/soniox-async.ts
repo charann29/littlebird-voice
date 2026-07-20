@@ -30,6 +30,19 @@ export function authHeaders(): HeadersInit {
 }
 
 /**
+ * Thrown when a transcription job reaches a TERMINAL failure state (the remote
+ * job itself errored / was rejected). Distinguished from transient errors
+ * (network hiccups, timeouts, aborts) so callers can decide whether to RESUME
+ * an existing job (transient) or discard it and start fresh (terminal).
+ */
+export class TranscriptionTerminalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TranscriptionTerminalError";
+  }
+}
+
+/**
  * Perform a Soniox REST call with auth headers attached, throwing a rich error
  * (see errorFromResponse) on any non-2xx response. This is the single place
  * that knows API_BASE + auth, so per-call sites only specify path/method/body.
@@ -147,23 +160,51 @@ export async function createTranscription(
 
 /**
  * Step 3 — Poll a transcription until it reaches a terminal state. Resolves
- * when status === "completed"; throws on any other terminal status ("error")
- * or when POLL_TIMEOUT_MS elapses.
+ * when status === "completed"; throws TranscriptionTerminalError on a terminal
+ * failure status, or a plain Error when POLL_TIMEOUT_MS elapses.
+ *
+ * A deadline AbortSignal (AbortSignal.timeout) is composed with the caller's
+ * signal so that a STALLED individual fetch/sleep is aborted rather than
+ * hanging forever — fetch has no intrinsic timeout of its own.
  */
 export async function pollTranscription(
   id: string,
   signal?: AbortSignal,
 ): Promise<void> {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  const deadlineSignal = AbortSignal.timeout(POLL_TIMEOUT_MS);
+  const composite = signal
+    ? AbortSignal.any([signal, deadlineSignal])
+    : deadlineSignal;
+
+  // Translate a deadline-only abort into a readable timeout error.
+  const asError = (err: unknown): Error => {
+    if (deadlineSignal.aborted && !(signal?.aborted ?? false)) {
+      return new Error(
+        `Transcription timed out after ${Math.round(POLL_TIMEOUT_MS / 1000)}s`,
+      );
+    }
+    return err instanceof Error ? err : new Error(String(err));
+  };
+
   // eslint-disable-next-line no-constant-condition
   while (true) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    const res = await sonioxFetch(
-      `/v1/transcriptions/${id}`,
-      "Poll transcription",
-      { method: "GET", signal },
-    );
-    const data = await res.json();
+    if (deadlineSignal.aborted) {
+      throw new Error(
+        `Transcription timed out after ${Math.round(POLL_TIMEOUT_MS / 1000)}s`,
+      );
+    }
+    let data: Record<string, unknown>;
+    try {
+      const res = await sonioxFetch(
+        `/v1/transcriptions/${id}`,
+        "Poll transcription",
+        { method: "GET", signal: composite },
+      );
+      data = await res.json();
+    } catch (err) {
+      throw asError(err);
+    }
     const status = data?.status as string | undefined;
     if (status === "completed") return;
     if (status && status !== "queued" && status !== "processing") {
@@ -171,14 +212,13 @@ export async function pollTranscription(
         (data?.error_message as string) ||
         (data?.error_type as string) ||
         `terminal status "${status}"`;
-      throw new Error(`Transcription failed — ${detail}`);
+      throw new TranscriptionTerminalError(`Transcription failed — ${detail}`);
     }
-    if (Date.now() > deadline) {
-      throw new Error(
-        `Transcription timed out after ${Math.round(POLL_TIMEOUT_MS / 1000)}s (still ${status ?? "unknown"})`,
-      );
+    try {
+      await sleep(POLL_INTERVAL_MS, composite);
+    } catch (err) {
+      throw asError(err);
     }
-    await sleep(POLL_INTERVAL_MS, signal);
   }
 }
 
@@ -222,9 +262,14 @@ export interface TranscribeCallbacks {
   /**
    * Called with the file id IMMEDIATELY after upload, then again with the
    * transcription id IMMEDIATELY after job creation, so the caller can persist
-   * them for crash recovery.
+   * them for crash recovery. May return a Promise; the orchestrator AWAITS it
+   * before advancing, so the caller can guarantee the id is committed (and can
+   * throw/abort to cancel the flow, e.g. if the record was deleted).
    */
-  onIds?: (ids: { fileId?: string; transcriptionId?: string }) => void;
+  onIds?: (ids: {
+    fileId?: string;
+    transcriptionId?: string;
+  }) => void | Promise<void>;
   signal?: AbortSignal;
 }
 
@@ -236,7 +281,8 @@ export interface TranscribeResult {
 
 /**
  * Full orchestrator: upload → create → poll → fetch. Emits stage + id events
- * along the way so callers can persist progress and recover from crashes.
+ * along the way so callers can persist progress and recover from crashes. The
+ * onIds events are AWAITED so persistence is committed before proceeding.
  */
 export async function transcribeBlob(
   blob: Blob,
@@ -244,11 +290,11 @@ export async function transcribeBlob(
 ): Promise<TranscribeResult> {
   onStage?.("uploading");
   const fileId = await uploadFile(blob, signal);
-  onIds?.({ fileId });
+  await onIds?.({ fileId });
 
   onStage?.("creating");
   const transcriptionId = await createTranscription(fileId, signal);
-  onIds?.({ transcriptionId });
+  await onIds?.({ transcriptionId });
 
   onStage?.("polling");
   await pollTranscription(transcriptionId, signal);

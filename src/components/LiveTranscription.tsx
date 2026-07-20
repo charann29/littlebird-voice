@@ -194,7 +194,7 @@ export function LiveTranscription({ online }: LiveTranscriptionProps) {
       <div className="flex flex-col items-center gap-2 pt-6">
         <button
           onClick={soniox.toggleRecording}
-          disabled={isConnecting || !online}
+          disabled={!online && !isActive}
           aria-label={isRecording ? "Stop recording" : "Start recording"}
           className={[
             "flex h-16 w-16 shrink-0 items-center justify-center rounded-full shadow-lg transition-all duration-200 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50",

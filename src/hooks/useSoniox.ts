@@ -5,19 +5,23 @@ import { WaveformViz, type WaveColor } from "../lib/waveform";
 /**
  * Realtime (online/live) transcription hook backed by Soniox's streaming
  * WebSocket via `@soniox/speech-to-text-web` (model stt-rt-v5, language hints,
- * speaker diarization). Ported from the reference speech-react MVP with the
- * following fixes applied:
+ * speaker diarization). Ported from the reference speech-react MVP with these
+ * correctness fixes:
  *
- *  - `SonioxClient.start(...)` is async in SDK 1.4: it is awaited and rejection
- *    is handled (error surfaced, returned to idle).
- *  - A `cancelRecording()` path calls the client's `cancel()` (immediate,
- *    resource-freeing) and is invoked on unmount so the WebSocket + mic can't
- *    leak.
- *  - Exactly ONE MediaStream is owned here: we call getUserMedia once, hand the
- *    same stream to the SDK via its `stream` option AND to WaveformViz, then
- *    stop every track of that one stream deterministically on stop/cancel.
+ *  - User STOP is graceful: it calls the SDK `stop()`, which waits for buffered
+ *    audio to produce final results, and keeps the MediaStream alive until
+ *    `onFinished` fires (then releases). Immediate teardown (`cancel()`) is used
+ *    only for discard / component unmount, so the last utterance isn't lost.
+ *  - Startup is race-safe: a synchronous generation counter is bumped on each
+ *    start. After every await (getUserMedia, dynamic import, viz.start,
+ *    client.start) we verify the session is still current AND mounted, else we
+ *    stop the just-acquired stream/client and bail — no leaked stream on tab
+ *    switch or rapid starts. All SDK callbacks are scoped to their generation.
+ *  - Final tokens are appended exactly once as they arrive (Soniox sends each
+ *    final token a single time; only the non-final/interim tail is replaced).
  *  - getUserMedia is feature-detected up front with a clear error.
- *  - Visualization uses the shared WaveformViz.
+ *  - Exactly ONE MediaStream is owned: it is shared with both the SDK (`stream`
+ *    option) and WaveformViz, and every track is stopped deterministically.
  */
 
 type RecordState = "idle" | "connecting" | "listening";
@@ -59,7 +63,10 @@ export function useSoniox(
   const clientRef = useRef<SonioxClientLike | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const vizRef = useRef<WaveformViz | null>(null);
-  const lastFinalTextRef = useRef("");
+  // Synchronous session id: bumped on every start/cancel/unmount so in-flight
+  // async startup and scoped SDK callbacks can detect a stale session.
+  const genRef = useRef(0);
+  const mountedRef = useRef(true);
   // ref so WaveformViz's color callback always reads the current state
   const recordStateRef = useRef<RecordState>("idle");
 
@@ -81,32 +88,48 @@ export function useSoniox(
     streamRef.current = null;
   }
 
-  function reset(state: RecordState) {
-    setRecordState(state);
-    setInterimText("");
-    lastFinalTextRef.current = "";
+  /** True while the given session is still the active one and we're mounted. */
+  function isCurrent(gen: number) {
+    return gen === genRef.current && mountedRef.current;
   }
 
-  /** Stop the SDK client immediately, preferring cancel() over stop(). */
-  function stopClient() {
+  /**
+   * Immediate cancel — used for user discard and component unmount. Bumps the
+   * generation so any in-flight startup and pending callbacks are invalidated,
+   * then terminates the client with `cancel()` (falling back to `stop()`).
+   */
+  function cancelRecording() {
+    genRef.current++;
     const client = clientRef.current;
-    // Prefer cancel() (immediate, closes resources); fall back to stop().
     if (client?.cancel) client.cancel();
     else client?.stop?.();
     clientRef.current = null;
+    teardownAudio();
+    setRecordState("idle");
+    setInterimText("");
   }
 
-  /** Immediate cancel — used by the user (toggle off) and on unmount. */
-  function cancelRecording() {
-    stopClient();
-    teardownAudio();
-    reset("idle");
+  /**
+   * Graceful user stop — calls the SDK `stop()` so buffered audio is flushed
+   * into final results; the MediaStream is kept alive until `onFinished` fires
+   * (which releases it). If no client exists yet (still connecting), fall back
+   * to an immediate cancel.
+   */
+  function stopRecording() {
+    const client = clientRef.current;
+    if (client?.stop) {
+      client.stop();
+      setInterimText("");
+      // Intentionally do NOT teardown here — onFinished handles release once
+      // the server returns the final results.
+    } else {
+      cancelRecording();
+    }
   }
 
   async function startListening() {
     setMicError("");
     setInterimText("");
-    lastFinalTextRef.current = "";
 
     // Feature-detect microphone access before doing anything else.
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -114,14 +137,24 @@ export function useSoniox(
       return;
     }
 
+    const gen = ++genRef.current;
     setRecordState("connecting");
 
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
-      setMicError("Microphone access denied — check browser permissions.");
-      setRecordState("idle");
+      if (isCurrent(gen)) {
+        setMicError("Microphone access denied — check browser permissions.");
+        setRecordState("idle");
+      }
+      return;
+    }
+
+    // Session changed (tab switch / rapid restart) while getUserMedia was
+    // pending: release this orphan stream and bail — do not start anything.
+    if (!isCurrent(gen)) {
+      stream.getTracks().forEach((t) => t.stop());
       return;
     }
     streamRef.current = stream;
@@ -132,26 +165,39 @@ export function useSoniox(
       recordStateRef.current === "listening" ? "listening" : "connecting";
     const viz = new WaveformViz(canvasRef, colorRef);
     vizRef.current = viz;
-    void viz.start(stream);
+    try {
+      await viz.start(stream);
+    } catch {
+      // Visualization is non-critical; ignore AudioContext failures.
+    }
+    if (!isCurrent(gen)) {
+      teardownAudio();
+      return;
+    }
 
     try {
       const { SonioxClient } = await import("@soniox/speech-to-text-web");
+      if (!isCurrent(gen)) {
+        teardownAudio();
+        return;
+      }
+
       const client = new SonioxClient({
         apiKey: SONIOX_API_KEY,
-        onStarted: () => setRecordState("listening"),
+        onStarted: () => {
+          if (!isCurrent(gen)) return;
+          setRecordState("listening");
+        },
         onPartialResult: (result: SonioxResult) => {
-          const currentFinal = result.tokens
+          if (!isCurrent(gen)) return;
+          // Soniox sends each final token exactly once, so append all final
+          // tokens from this callback verbatim; only the interim tail is
+          // recomputed each time.
+          const finalText = result.tokens
             .filter((t) => t.is_final)
             .map((t) => t.text)
             .join("");
-          // Emit only the newly finalized suffix to avoid re-appending text.
-          const newFinal = currentFinal.startsWith(lastFinalTextRef.current)
-            ? currentFinal.slice(lastFinalTextRef.current.length)
-            : currentFinal;
-          if (newFinal) {
-            onTextRef.current(newFinal);
-            lastFinalTextRef.current = currentFinal;
-          }
+          if (finalText) onTextRef.current(finalText);
           setInterimText(
             result.tokens
               .filter((t) => !t.is_final)
@@ -160,15 +206,19 @@ export function useSoniox(
           );
         },
         onFinished: () => {
+          if (!isCurrent(gen)) return;
           clientRef.current = null;
           teardownAudio();
-          reset("idle");
+          setRecordState("idle");
+          setInterimText("");
         },
         onError: (_status: string, message: string) => {
+          if (!isCurrent(gen)) return;
           setMicError(message || "Microphone error — check browser settings.");
           clientRef.current = null;
           teardownAudio();
-          reset("idle");
+          setRecordState("idle");
+          setInterimText("");
         },
       }) as unknown as SonioxClientLike;
       clientRef.current = client;
@@ -180,7 +230,17 @@ export function useSoniox(
         enableSpeakerDiarization: true,
         stream, // share the one owned MediaStream with the SDK
       });
+
+      // Unmounted / restarted while start() was resolving: cancel this client
+      // immediately and release resources.
+      if (!isCurrent(gen)) {
+        if (client.cancel) client.cancel();
+        else client.stop?.();
+        if (clientRef.current === client) clientRef.current = null;
+        teardownAudio();
+      }
     } catch {
+      if (!isCurrent(gen)) return;
       setMicError("Could not start live transcription — check your connection.");
       clientRef.current = null;
       teardownAudio();
@@ -190,13 +250,21 @@ export function useSoniox(
 
   function toggleRecording() {
     if (recordState === "idle") void startListening();
+    else if (recordState === "listening") stopRecording();
+    // While connecting there is no buffered audio worth flushing — cancel.
     else cancelRecording();
   }
 
-  // Cancel on unmount so the WebSocket + mic never leak.
+  // Immediate cancel on unmount so the WebSocket + mic never leak.
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
-      stopClient();
+      mountedRef.current = false;
+      genRef.current++;
+      const client = clientRef.current;
+      if (client?.cancel) client.cancel();
+      else client?.stop?.();
+      clientRef.current = null;
       teardownAudio();
     };
   }, []);

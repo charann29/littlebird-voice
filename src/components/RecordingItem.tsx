@@ -8,7 +8,7 @@
  * leaking memory.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Recording, TranscribeStage } from "../types";
 import {
   AlertIcon,
@@ -27,6 +27,8 @@ interface RecordingItemProps {
   recording: Recording;
   isOnline: boolean;
   stage?: TranscribeStage;
+  /** True while a transcription is in flight for this id (immediate). */
+  isActive?: boolean;
   onTranscribe: (id: string) => void;
   onDelete: (id: string) => void;
 }
@@ -62,6 +64,7 @@ export function RecordingItem({
   recording,
   isOnline,
   stage,
+  isActive = false,
   onTranscribe,
   onDelete,
 }: RecordingItemProps) {
@@ -70,14 +73,15 @@ export function RecordingItem({
   const [copied, setCopied] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
 
-  // Create an object URL from the blob; revoke when the blob changes/unmounts.
-  const objectUrl = useMemo(
-    () => URL.createObjectURL(recording.blob),
-    [recording.blob],
-  );
+  // Create the object URL in an effect (not useMemo) so it's created and
+  // revoked exactly once per blob — this survives StrictMode's double-invoke
+  // and revokes on unmount AND whenever the blob changes.
+  const [objectUrl, setObjectUrl] = useState<string>("");
   useEffect(() => {
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [objectUrl]);
+    const url = URL.createObjectURL(recording.blob);
+    setObjectUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [recording.blob]);
 
   const togglePlay = () => {
     const el = audioRef.current;
@@ -102,6 +106,9 @@ export function RecordingItem({
 
   const { status } = recording;
   const isTranscribing = status === "transcribing";
+  // Disable transcribe/retry the instant a run is reserved (before the status
+  // write lands), defeating rapid double-clicks / click-during-drain races.
+  const busy = isTranscribing || isActive;
 
   const title = `Recording ${formatTimestamp(recording.createdAt)}`;
 
@@ -147,7 +154,7 @@ export function RecordingItem({
         </span>
         <audio
           ref={audioRef}
-          src={objectUrl}
+          {...(objectUrl ? { src: objectUrl } : {})}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
           onEnded={() => {
@@ -183,7 +190,7 @@ export function RecordingItem({
             <button
               type="button"
               onClick={() => onTranscribe(recording.id)}
-              disabled={isTranscribing}
+              disabled={busy}
               className="inline-flex items-center gap-1.5 rounded-[10px] bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-md shadow-indigo-600/40 hover:bg-indigo-500 disabled:opacity-60"
             >
               <MicIcon width={13} height={13} />
@@ -212,7 +219,7 @@ export function RecordingItem({
             <button
               type="button"
               onClick={() => onTranscribe(recording.id)}
-              disabled={isTranscribing}
+              disabled={busy}
               className="inline-flex items-center gap-1.5 rounded-[10px] border border-red-500/35 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-500/15 disabled:opacity-60"
             >
               <RefreshIcon width={13} height={13} />

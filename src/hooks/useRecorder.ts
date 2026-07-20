@@ -20,6 +20,15 @@ export interface CapturedAudio {
   blobSize: number;
 }
 
+export interface UseRecorderOptions {
+  /**
+   * Invoked with the captured audio whenever recording finalizes for ANY
+   * reason — explicit stop(), the MAX_RECORDING_MS auto-stop, OR a recorder
+   * error — so audio is never silently dropped. The caller persists here.
+   */
+  onComplete?: (audio: CapturedAudio) => void | Promise<void>;
+}
+
 export interface UseRecorder {
   isRecording: boolean;
   elapsedMs: number;
@@ -49,11 +58,16 @@ function negotiateMimeType(): string {
 
 export function useRecorder(
   waveformCanvasRef: { current: HTMLCanvasElement | null },
+  options: UseRecorderOptions = {},
 ): UseRecorder {
   const [isRecording, setIsRecording] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [isSupported] = useState<boolean>(detectSupported);
+
+  // Keep the latest onComplete in a ref so finalizeStop's identity is stable.
+  const onCompleteRef = useRef(options.onComplete);
+  onCompleteRef.current = options.onComplete;
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -110,7 +124,17 @@ export function useRecorder(
       resolve?.(null);
       return;
     }
-    resolve?.({ blob, durationMs, mimeType, blobSize: blob.size });
+    const captured: CapturedAudio = {
+      blob,
+      durationMs,
+      mimeType,
+      blobSize: blob.size,
+    };
+    // Deliver to the caller's onComplete for EVERY stop path (user, auto-stop,
+    // error-stop) so finalized audio is always persisted. The explicit stop()
+    // caller also receives it via the resolver.
+    void onCompleteRef.current?.(captured);
+    resolve?.(captured);
   }, [cleanupCapture, elapsedMs]);
 
   const start = useCallback(async () => {

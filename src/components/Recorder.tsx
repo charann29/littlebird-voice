@@ -8,9 +8,9 @@
  * immediately from the list.
  */
 
-import { useRef } from "react";
-import { MicIcon, StopIcon, WifiOffIcon } from "./icons";
-import { useRecorder } from "../hooks/useRecorder";
+import { useCallback, useRef, useState } from "react";
+import { DownloadIcon, MicIcon, StopIcon, WifiOffIcon } from "./icons";
+import { useRecorder, type CapturedAudio } from "../hooks/useRecorder";
 import { useRecordings } from "../hooks/useRecordings";
 import { useOnlineStatus } from "../hooks/useOnlineStatus";
 
@@ -21,19 +21,62 @@ function formatTimer(ms: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+function extensionForMime(mimeType: string): string {
+  const t = mimeType.toLowerCase();
+  if (t.includes("webm")) return "webm";
+  if (t.includes("mp4") || t.includes("m4a")) return "m4a";
+  if (t.includes("ogg")) return "ogg";
+  if (t.includes("wav")) return "wav";
+  return "webm";
+}
+
 export function Recorder() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const { isRecording, elapsedMs, error, isSupported, start, stop } =
-    useRecorder(canvasRef);
   const { addFromBlob } = useRecordings();
   const isOnline = useOnlineStatus();
 
-  const handleStop = async () => {
-    const captured = await stop();
-    if (captured) {
-      await addFromBlob(captured);
+  // Durable "save failed" state: keep the blob so the user can retry / download
+  // instead of losing the recording (quota, private mode, IDB failure).
+  const [saveFailed, setSaveFailed] = useState<CapturedAudio | null>(null);
+
+  // Persist finalized audio for EVERY stop path (user, auto-stop, error-stop).
+  const handleComplete = useCallback(
+    async (captured: CapturedAudio) => {
+      try {
+        await addFromBlob(captured);
+        setSaveFailed(null);
+      } catch {
+        // Don't drop the audio — surface a recoverable failure with the blob.
+        setSaveFailed(captured);
+      }
+    },
+    [addFromBlob],
+  );
+
+  const { isRecording, elapsedMs, error, isSupported, start, stop } =
+    useRecorder(canvasRef, { onComplete: handleComplete });
+
+  const retrySave = useCallback(async () => {
+    if (!saveFailed) return;
+    try {
+      await addFromBlob(saveFailed);
+      setSaveFailed(null);
+    } catch {
+      /* keep the failure state so the user can still download */
     }
-  };
+  }, [saveFailed, addFromBlob]);
+
+  const downloadFailed = useCallback(() => {
+    if (!saveFailed) return;
+    const url = URL.createObjectURL(saveFailed.blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `recording-${Date.now()}.${extensionForMime(saveFailed.mimeType)}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [saveFailed]);
 
   if (!isSupported) {
     return (
@@ -80,7 +123,7 @@ export function Recorder() {
       {/* Big circular mic/stop button — always enabled. */}
       <button
         type="button"
-        onClick={isRecording ? handleStop : start}
+        onClick={isRecording ? () => void stop() : () => void start()}
         aria-label={isRecording ? "Stop recording" : "Start recording"}
         className={[
           "flex h-16 w-16 items-center justify-center rounded-full text-white shadow-lg transition-transform active:scale-95",
@@ -126,6 +169,33 @@ export function Recorder() {
 
       {error && (
         <p className="max-w-[320px] text-center text-xs text-red-400">{error}</p>
+      )}
+
+      {/* Durable save-failure recovery — never silently drop the audio. */}
+      {saveFailed && (
+        <div className="flex max-w-[340px] flex-col items-center gap-3 rounded-2xl border border-red-500/35 bg-red-500/10 px-4 py-3 text-center">
+          <p className="text-[13px] leading-relaxed text-red-200">
+            Couldn't save this recording to your device. Your audio is still
+            here — retry, or download it so you don't lose it.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void retrySave()}
+              className="rounded-[10px] bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500"
+            >
+              Retry save
+            </button>
+            <button
+              type="button"
+              onClick={downloadFailed}
+              className="inline-flex items-center gap-1.5 rounded-[10px] border border-[#334155] px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-slate-500"
+            >
+              <DownloadIcon width={13} height={13} />
+              Download
+            </button>
+          </div>
+        </div>
       )}
     </section>
   );
