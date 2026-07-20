@@ -22,6 +22,7 @@ import {
   addRecording,
   deleteRecording,
   getAllRecordings,
+  getRecording,
   updateRecording,
 } from "../lib/db";
 import {
@@ -60,6 +61,15 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
       prev.map((r) => (r.id === id ? { ...r, ...patch, id: r.id } : r)),
     );
   }, []);
+
+  /** Persist a patch to IndexedDB and mirror it into React state. */
+  const persist = useCallback(
+    async (id: string, patch: Partial<Recording>) => {
+      await updateRecording(id, patch);
+      applyLocal(id, patch);
+    },
+    [applyLocal],
+  );
 
   const setStage = useCallback(
     (id: string, stage: TranscribeStage | undefined) => {
@@ -100,9 +110,7 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
       // Guard: never run the same id twice concurrently.
       if (activeRef.current.has(id)) return;
 
-      const current = await getAllRecordings().then((all) =>
-        all.find((r) => r.id === id),
-      );
+      const current = await getRecording(id);
       if (!current) return;
       if (current.status === "transcribing") return;
 
@@ -110,8 +118,7 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
       const controller = new AbortController();
       controllersRef.current.set(id, controller);
 
-      await updateRecording(id, { status: "transcribing", error: null });
-      applyLocal(id, { status: "transcribing", error: null });
+      await persist(id, { status: "transcribing", error: null });
       setStage(id, "uploading");
 
       try {
@@ -120,27 +127,14 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
           onStage: (stage) => setStage(id, stage),
           onIds: ({ fileId, transcriptionId }) => {
             // Persist ids IMMEDIATELY for crash recovery.
-            if (fileId) {
-              void updateRecording(id, { sonioxFileId: fileId });
-              applyLocal(id, { sonioxFileId: fileId });
-            }
+            if (fileId) void persist(id, { sonioxFileId: fileId });
             if (transcriptionId) {
-              void updateRecording(id, {
-                sonioxTranscriptionId: transcriptionId,
-              });
-              applyLocal(id, { sonioxTranscriptionId: transcriptionId });
+              void persist(id, { sonioxTranscriptionId: transcriptionId });
             }
           },
         });
 
-        await updateRecording(id, {
-          status: "done",
-          transcript: result.transcript,
-          error: null,
-          sonioxFileId: result.fileId,
-          sonioxTranscriptionId: result.transcriptionId,
-        });
-        applyLocal(id, {
+        await persist(id, {
           status: "done",
           transcript: result.transcript,
           error: null,
@@ -157,15 +151,14 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
         }
         const message =
           err instanceof Error ? err.message : "Transcription failed.";
-        await updateRecording(id, { status: "error", error: message });
-        applyLocal(id, { status: "error", error: message });
+        await persist(id, { status: "error", error: message });
       } finally {
         activeRef.current.delete(id);
         controllersRef.current.delete(id);
         setStage(id, undefined);
       }
     },
-    [applyLocal, setStage],
+    [persist, setStage],
   );
 
   const transcribeAllPending = useCallback(async () => {
@@ -189,9 +182,7 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
       controllersRef.current.delete(id);
       activeRef.current.delete(id);
     }
-    const existing = await getAllRecordings().then((all) =>
-      all.find((r) => r.id === id),
-    );
+    const existing = await getRecording(id);
     await deleteRecording(id);
     setRecordings((prev) => prev.filter((r) => r.id !== id));
     setStages((prev) => {
@@ -226,23 +217,18 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
               rec.sonioxTranscriptionId,
               controller.signal,
             );
-            await updateRecording(rec.id, {
+            await persist(rec.id, {
               status: "done",
               transcript,
               error: null,
             });
-            applyLocal(rec.id, { status: "done", transcript, error: null });
             void deleteRemote(rec.sonioxFileId, rec.sonioxTranscriptionId);
           } catch (err) {
             if (err instanceof DOMException && err.name === "AbortError") {
               // ignore
             } else {
               // Recovery failed: reset to pending so it can be retried.
-              await updateRecording(rec.id, {
-                status: "pending",
-                error: null,
-              });
-              applyLocal(rec.id, { status: "pending", error: null });
+              await persist(rec.id, { status: "pending", error: null });
             }
           } finally {
             activeRef.current.delete(rec.id);
@@ -252,8 +238,7 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
         } else {
           // No remote id — nothing to resume; reset to pending.
           try {
-            await updateRecording(rec.id, { status: "pending", error: null });
-            applyLocal(rec.id, { status: "pending", error: null });
+            await persist(rec.id, { status: "pending", error: null });
           } catch {
             /* defensive: don't block render */
           }
@@ -265,7 +250,7 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [applyLocal, setStage]);
+  }, [persist, setStage]);
 
   const value: RecordingsContextValue = {
     recordings,

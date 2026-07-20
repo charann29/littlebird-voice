@@ -29,6 +29,36 @@ export function authHeaders(): HeadersInit {
   return { Authorization: `Bearer ${SONIOX_API_KEY}` };
 }
 
+/**
+ * Perform a Soniox REST call with auth headers attached, throwing a rich error
+ * (see errorFromResponse) on any non-2xx response. This is the single place
+ * that knows API_BASE + auth, so per-call sites only specify path/method/body.
+ */
+async function sonioxFetch(
+  path: string,
+  label: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: { ...authHeaders(), ...init.headers },
+  });
+  if (!res.ok) throw await errorFromResponse(res, label);
+  return res;
+}
+
+/** Fire-and-forget DELETE that never throws — used for best-effort cleanup. */
+async function bestEffortDelete(path: string): Promise<void> {
+  try {
+    await fetch(`${API_BASE}${path}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+  } catch {
+    /* non-fatal */
+  }
+}
+
 /** Build a human-readable error message from a failed Response. */
 async function errorFromResponse(res: Response, label: string): Promise<Error> {
   let detail = "";
@@ -79,13 +109,11 @@ export async function uploadFile(
   const filename = filenameForMime(blob.type || "audio/webm");
   form.append("file", blob, filename);
 
-  const res = await fetch(`${API_BASE}/v1/files`, {
+  const res = await sonioxFetch("/v1/files", "Upload", {
     method: "POST",
-    headers: authHeaders(),
     body: form,
     signal,
   });
-  if (!res.ok) throw await errorFromResponse(res, "Upload");
   const data = await res.json();
   const fileId = data?.id as string | undefined;
   if (!fileId) throw new Error("Upload succeeded but no file id was returned");
@@ -100,9 +128,9 @@ export async function createTranscription(
   fileId: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  const res = await fetch(`${API_BASE}/v1/transcriptions`, {
+  const res = await sonioxFetch("/v1/transcriptions", "Create transcription", {
     method: "POST",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: ASYNC_MODEL,
       file_id: fileId,
@@ -110,7 +138,6 @@ export async function createTranscription(
     }),
     signal,
   });
-  if (!res.ok) throw await errorFromResponse(res, "Create transcription");
   const data = await res.json();
   const id = data?.id as string | undefined;
   if (!id)
@@ -131,16 +158,15 @@ export async function pollTranscription(
   // eslint-disable-next-line no-constant-condition
   while (true) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    const res = await fetch(`${API_BASE}/v1/transcriptions/${id}`, {
-      method: "GET",
-      headers: authHeaders(),
-      signal,
-    });
-    if (!res.ok) throw await errorFromResponse(res, "Poll transcription");
+    const res = await sonioxFetch(
+      `/v1/transcriptions/${id}`,
+      "Poll transcription",
+      { method: "GET", signal },
+    );
     const data = await res.json();
     const status = data?.status as string | undefined;
     if (status === "completed") return;
-    if (status === "error" || (status && status !== "queued" && status !== "processing")) {
+    if (status && status !== "queued" && status !== "processing") {
       const detail =
         (data?.error_message as string) ||
         (data?.error_type as string) ||
@@ -161,12 +187,11 @@ export async function getTranscript(
   id: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  const res = await fetch(`${API_BASE}/v1/transcriptions/${id}/transcript`, {
-    method: "GET",
-    headers: authHeaders(),
-    signal,
-  });
-  if (!res.ok) throw await errorFromResponse(res, "Get transcript");
+  const res = await sonioxFetch(
+    `/v1/transcriptions/${id}/transcript`,
+    "Get transcript",
+    { method: "GET", signal },
+  );
   const data = (await res.json()) as SonioxTranscript;
   if (typeof data.text === "string" && data.text.length > 0) return data.text;
   if (Array.isArray(data.tokens)) {
@@ -184,24 +209,10 @@ export async function deleteRemote(
   transcriptionId?: string | null,
 ): Promise<void> {
   if (transcriptionId) {
-    try {
-      await fetch(`${API_BASE}/v1/transcriptions/${transcriptionId}`, {
-        method: "DELETE",
-        headers: authHeaders(),
-      });
-    } catch {
-      /* non-fatal */
-    }
+    await bestEffortDelete(`/v1/transcriptions/${transcriptionId}`);
   }
   if (fileId) {
-    try {
-      await fetch(`${API_BASE}/v1/files/${fileId}`, {
-        method: "DELETE",
-        headers: authHeaders(),
-      });
-    } catch {
-      /* non-fatal */
-    }
+    await bestEffortDelete(`/v1/files/${fileId}`);
   }
 }
 

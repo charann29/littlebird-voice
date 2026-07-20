@@ -87,13 +87,18 @@ export function useSoniox(
     lastFinalTextRef.current = "";
   }
 
-  /** Immediate cancel — used by the user (toggle off) and on unmount. */
-  function cancelRecording() {
+  /** Stop the SDK client immediately, preferring cancel() over stop(). */
+  function stopClient() {
     const client = clientRef.current;
     // Prefer cancel() (immediate, closes resources); fall back to stop().
     if (client?.cancel) client.cancel();
     else client?.stop?.();
     clientRef.current = null;
+  }
+
+  /** Immediate cancel — used by the user (toggle off) and on unmount. */
+  function cancelRecording() {
+    stopClient();
     teardownAudio();
     reset("idle");
   }
@@ -191,10 +196,7 @@ export function useSoniox(
   // Cancel on unmount so the WebSocket + mic never leak.
   useEffect(() => {
     return () => {
-      const client = clientRef.current;
-      if (client?.cancel) client.cancel();
-      else client?.stop?.();
-      clientRef.current = null;
+      stopClient();
       teardownAudio();
     };
   }, []);
