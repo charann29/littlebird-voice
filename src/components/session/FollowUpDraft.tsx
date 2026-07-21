@@ -6,13 +6,18 @@
  * - "Which speaker is you?" picker: lists the session's diarized speaker
  *   labels and PATCHes `self_speaker` via section 10's PATCH
  *   /api/sessions/:id (optional — drafts are neutral without it).
- * - Streamed draft lands in an editable textarea; Copy is the terminal
- *   action. Explicitly NO Send (sending is 40-integrations).
+ * - Streamed draft lands in an editable textarea; Copy stays the default
+ *   terminal action. Section 40 adds opt-in send affordances: Gmail for
+ *   email drafts, Slack for message drafts (tokens stay Worker-side).
  */
 import { useEffect, useMemo, useState } from "react";
 import { useFollowup } from "../../hooks/useFollowup";
 import { useOnlineStatus } from "../../hooks/useOnlineStatus";
 import { apiFetch } from "../../lib/api";
+import {
+  GmailSendControl,
+  SlackPostControl,
+} from "../integrations/IntegrationActions";
 import {
   AlertIcon,
   CheckIcon,
@@ -239,6 +244,17 @@ export function FollowUpDraft({ sessionId }: { sessionId: string }) {
               {copied ? "Copied" : "Copy"}
             </button>
           </div>
+
+          {/* section 40: opt-in send affordances (never automatic) */}
+          {!streaming && draft && (
+            <div className="flex flex-wrap gap-2">
+              {format === "email" ? (
+                <GmailSendControl body={draft} sessionId={sessionId} />
+              ) : (
+                <SlackPostControl text={draft} />
+              )}
+            </div>
+          )}
         </div>
       )}
 

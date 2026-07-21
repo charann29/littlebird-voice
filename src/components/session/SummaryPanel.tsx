@@ -19,6 +19,11 @@ import {
   SparklesIcon,
   SpinnerIcon,
 } from "../icons";
+import {
+  NotionExportControl,
+  SlackPostControl,
+  summaryToNotionExport,
+} from "../integrations/IntegrationActions";
 import type { SummaryV1 } from "../../lib/ai-types";
 
 function SectionHeader({ children }: { children: React.ReactNode }) {
@@ -279,7 +284,48 @@ export function SummaryPanel({ sessionId }: { sessionId: string }) {
         </div>
       )}
 
-      {summary && status !== "loading" && <SummaryBody summary={summary} />}
+      {summary && status !== "loading" && (
+        <>
+          <SummaryBody summary={summary} />
+
+          {/* section 40: opt-in export affordances (tokens stay Worker-side) */}
+          <div className="flex flex-wrap gap-2 border-t border-[#1e293b] pt-4">
+            <SlackPostControl text={summaryToSlackText(summary)} />
+            <NotionExportControl
+              {...summaryToNotionExport(summary)}
+              defaultTitle="Meeting summary"
+              sessionId={sessionId}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
+}
+
+/** Flatten a SummaryV1 into a plain-text Slack message. */
+export function summaryToSlackText(summary: SummaryV1): string {
+  const parts = [summary.overview];
+  if (summary.action_items.length > 0) {
+    parts.push(
+      "Action items:\n" +
+        summary.action_items
+          .map((a) =>
+            [
+              `• ${a.text}`,
+              a.owner && `(${a.owner})`,
+              a.due && `— due ${a.due}`,
+            ]
+              .filter(Boolean)
+              .join(" "),
+          )
+          .join("\n"),
+    );
+  }
+  if (summary.decisions.length > 0) {
+    parts.push(
+      "Decisions:\n" + summary.decisions.map((d) => `• ${d}`).join("\n"),
+    );
+  }
+  return parts.join("\n\n");
 }
