@@ -3,15 +3,13 @@
  * AI Summary (SummaryPanel), Follow-ups (FollowUpDraft), Ask (AskAiPanel
  * scope="session"). Arrow-key roving focus, aria-selected, tabpanels.
  *
- * INTEGRATION POINT (section 20-T3): swap the typed placeholders for
- *   import { SummaryPanel } from "./SummaryPanel";
- *   import { FollowUpDraft } from "./FollowUpDraft";
- *   import { AskAiPanel } from "./AskAiPanel";
- * All three take `sessionId` and are self-contained (own loading/offline/
- * error states) per 20-T3's contract.
+ * All three panes take `sessionId` and are self-contained (own loading/
+ * offline/error states) per 20-T3's contract.
  */
 import { useRef, useState, type ComponentType } from "react";
-import { SparklesIcon } from "../icons";
+import { SummaryPanel } from "./SummaryPanel";
+import { FollowUpDraft } from "./FollowUpDraft";
+import { AskAiPanel } from "./AskAiPanel";
 
 export type DetailTab = "summary" | "followups" | "ask";
 
@@ -19,31 +17,14 @@ interface PanelProps {
   sessionId: string;
 }
 
-function PlaceholderPanel({ label }: { label: string }) {
-  return (
-    <div className="flex flex-col items-center gap-3 rounded-2xl border border-[#1e293b] bg-[#0f172a] px-6 py-12 text-center">
-      <span className="text-slate-600">
-        <SparklesIcon width={26} height={26} />
-      </span>
-      <p className="text-sm font-semibold text-slate-300">
-        {label} arrives with the AI slice
-      </p>
-      <p className="max-w-xs text-[13px] leading-relaxed text-slate-500">
-        AI features are being wired up. This tab will light up automatically
-        once they land.
-      </p>
-    </div>
-  );
-}
-
-const SummaryHost: ComponentType<PanelProps> = () => (
-  <PlaceholderPanel label="AI Summary" />
+const SummaryHost: ComponentType<PanelProps> = ({ sessionId }) => (
+  <SummaryPanel sessionId={sessionId} />
 );
-const FollowUpsHost: ComponentType<PanelProps> = () => (
-  <PlaceholderPanel label="Follow-up drafting" />
+const FollowUpsHost: ComponentType<PanelProps> = ({ sessionId }) => (
+  <FollowUpDraft sessionId={sessionId} />
 );
-const AskHost: ComponentType<PanelProps> = () => (
-  <PlaceholderPanel label="Ask AI" />
+const AskHost: ComponentType<PanelProps> = ({ sessionId }) => (
+  <AskAiPanel scope="session" sessionId={sessionId} />
 );
 
 const TABS: { id: DetailTab; label: string }[] = [
