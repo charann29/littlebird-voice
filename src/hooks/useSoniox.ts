@@ -42,6 +42,18 @@ interface SonioxClientLike {
   cancel?: () => void;
 }
 
+export interface UseSonioxOptions {
+  /**
+   * Optional injected-stream provider (Meeting capture's mixed stream).
+   * Ownership rule: whoever creates a MediaStream stops it — when a stream is
+   * injected the hook does NOT own it and never calls track.stop() on it
+   * (it still disconnects the waveform viz); the provider (e.g. CaptureMixer)
+   * stops the tracks. When absent, the hook getUserMedia's its own stream
+   * (owned) — default behavior is byte-identical to v1.
+   */
+  getStream?: () => Promise<MediaStream>;
+}
+
 export interface UseSoniox {
   recordState: RecordState;
   isRecording: boolean;
@@ -55,6 +67,7 @@ export interface UseSoniox {
 export function useSoniox(
   onText: (text: string) => void,
   canvasRef: RefObject<HTMLCanvasElement | null>,
+  options?: UseSonioxOptions,
 ): UseSoniox {
   const [recordState, setRecordState] = useState<RecordState>("idle");
   const [interimText, setInterimText] = useState("");
@@ -62,6 +75,11 @@ export function useSoniox(
 
   const clientRef = useRef<SonioxClientLike | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // True only for the default getUserMedia path; injected streams are owned
+  // by their creator (ownership rule) and are never stopped here.
+  const ownsStreamRef = useRef(false);
+  const getStreamRef = useRef(options?.getStream);
+  getStreamRef.current = options?.getStream;
   const vizRef = useRef<WaveformViz | null>(null);
   // Synchronous session id: bumped on every start/cancel/unmount so in-flight
   // async startup and scoped SDK callbacks can detect a stale session.
@@ -84,8 +102,13 @@ export function useSoniox(
   function teardownAudio() {
     vizRef.current?.stop();
     vizRef.current = null;
-    streamRef.current?.getTracks().forEach((t) => t.stop());
+    // Stop tracks only when this hook created the stream itself; injected
+    // streams are stopped by their creator (e.g. CaptureMixer).
+    if (ownsStreamRef.current) {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    }
     streamRef.current = null;
+    ownsStreamRef.current = false;
   }
 
   /** True while the given session is still the active one and we're mounted. */

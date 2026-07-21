@@ -1,0 +1,51 @@
+// Canonical Worker config (JSONC — NOT wrangler.toml). All bindings (D1,
+// Queues, future Vectorize/R2/etc.) are declared here.
+//
+// Local dev: `wrangler dev` runs D1 + Queues via local simulators — no
+// Cloudflare account needed. Secrets come from `.dev.vars` (gitignored).
+//
+// Deploy (when hosting is decided): fill `database_id` after
+// `wrangler d1 create littlebird-voice`, create the queues, set secrets —
+// see worker/README.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "littlebird-voice",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "littlebird-voice",
+      // Placeholder — replace with the real id from `wrangler d1 create`
+      // before a remote deploy. Local dev ignores it.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "INGEST_QUEUE",
+        "queue": "littlebird-ingest"
+      }
+    ],
+    // Consumer config is provisioned here, but the single dispatcher
+    // (worker/src/queue/consumer.ts registering the `queue()` handler) is
+    // owned by section 30 (its T3). Until then src/index.ts exports a
+    // temporary no-op queue handler so `wrangler dev` starts cleanly.
+    "consumers": [
+      {
+        "queue": "littlebird-ingest",
+        "max_retries": 3,
+        "retry_delay": 30,
+        "dead_letter_queue": "littlebird-ingest-dlq"
+      }
+    ]
+  },
+  "assets": {
+    "directory": "../dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  }
+}
