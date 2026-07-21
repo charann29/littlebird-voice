@@ -11,7 +11,8 @@
  * attempt the network operation with these functions and surface any thrown
  * error to the UI (which can then show a retry affordance).
  *
- * Auth: every request sends `Authorization: Bearer <SONIOX_API_KEY>`.
+ * Auth: every request goes through the Worker's allow-listed /api/stt/*
+ * relay with the app bearer token; the Worker injects the Soniox key.
  */
 
 import {
@@ -20,13 +21,21 @@ import {
   LANGUAGE_HINTS,
   POLL_INTERVAL_MS,
   POLL_TIMEOUT_MS,
-  SONIOX_API_KEY,
 } from "../config";
-import type { SonioxTranscript, TranscribeStage } from "../types";
+import { getApiToken } from "./api";
+import type {
+  SonioxTranscript,
+  TranscribeStage,
+  TranscriptSegment,
+} from "../types";
 
-/** Auth headers shared by every Soniox REST call. */
+/**
+ * Auth headers shared by every relay call: the APP bearer token (same-origin
+ * Worker), never a Soniox key — the Worker injects that server-side.
+ */
 export function authHeaders(): HeadersInit {
-  return { Authorization: `Bearer ${SONIOX_API_KEY}` };
+  const token = getApiToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 /**
@@ -122,7 +131,7 @@ export async function uploadFile(
   const filename = filenameForMime(blob.type || "audio/webm");
   form.append("file", blob, filename);
 
-  const res = await sonioxFetch("/v1/files", "Upload", {
+  const res = await sonioxFetch("/files", "Upload", {
     method: "POST",
     body: form,
     signal,
@@ -141,7 +150,7 @@ export async function createTranscription(
   fileId: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  const res = await sonioxFetch("/v1/transcriptions", "Create transcription", {
+  const res = await sonioxFetch("/transcriptions", "Create transcription", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -197,7 +206,7 @@ export async function pollTranscription(
     let data: Record<string, unknown>;
     try {
       const res = await sonioxFetch(
-        `/v1/transcriptions/${id}`,
+        `/transcriptions/${id}`,
         "Poll transcription",
         { method: "GET", signal: composite },
       );
@@ -222,22 +231,68 @@ export async function pollTranscription(
   }
 }
 
-/** Step 4 — Fetch the transcript text for a completed transcription. */
+/** Text + diarized segments for a completed transcription. */
+export interface TranscriptFetchResult {
+  text: string;
+  /** Diarized segments derived from Soniox tokens (null when unavailable). */
+  segments: TranscriptSegment[] | null;
+}
+
+/**
+ * Group Soniox tokens into diarized segments: consecutive tokens with the
+ * same speaker label merge into one segment carrying start/end timings.
+ */
+export function tokensToSegments(
+  tokens: NonNullable<SonioxTranscript["tokens"]>,
+): TranscriptSegment[] {
+  const segments: TranscriptSegment[] = [];
+  for (const token of tokens) {
+    const speaker = token.speaker ?? null;
+    const last = segments[segments.length - 1];
+    if (last && last.speaker === speaker) {
+      last.text += token.text;
+      if (typeof token.end_ms === "number") last.end_ms = token.end_ms;
+      if (last.start_ms === null && typeof token.start_ms === "number") {
+        last.start_ms = token.start_ms;
+      }
+    } else {
+      segments.push({
+        speaker,
+        start_ms: typeof token.start_ms === "number" ? token.start_ms : null,
+        end_ms: typeof token.end_ms === "number" ? token.end_ms : null,
+        text: token.text,
+      });
+    }
+  }
+  // Trim leading whitespace Soniox puts on token boundaries.
+  for (const seg of segments) seg.text = seg.text.trim();
+  return segments.filter((seg) => seg.text.length > 0);
+}
+
+/**
+ * Step 4 — Fetch the transcript (text + diarized segments) for a completed
+ * transcription.
+ */
 export async function getTranscript(
   id: string,
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<TranscriptFetchResult> {
   const res = await sonioxFetch(
-    `/v1/transcriptions/${id}/transcript`,
+    `/transcriptions/${id}/transcript`,
     "Get transcript",
     { method: "GET", signal },
   );
   const data = (await res.json()) as SonioxTranscript;
-  if (typeof data.text === "string" && data.text.length > 0) return data.text;
-  if (Array.isArray(data.tokens)) {
-    return data.tokens.map((t) => t.text).join("");
+  const segments = Array.isArray(data.tokens)
+    ? tokensToSegments(data.tokens)
+    : null;
+  let text = "";
+  if (typeof data.text === "string" && data.text.length > 0) {
+    text = data.text;
+  } else if (Array.isArray(data.tokens)) {
+    text = data.tokens.map((t) => t.text).join("");
   }
-  return "";
+  return { text, segments };
 }
 
 /**
@@ -249,10 +304,10 @@ export async function deleteRemote(
   transcriptionId?: string | null,
 ): Promise<void> {
   if (transcriptionId) {
-    await bestEffortDelete(`/v1/transcriptions/${transcriptionId}`);
+    await bestEffortDelete(`/transcriptions/${transcriptionId}`);
   }
   if (fileId) {
-    await bestEffortDelete(`/v1/files/${fileId}`);
+    await bestEffortDelete(`/files/${fileId}`);
   }
 }
 
@@ -275,6 +330,8 @@ export interface TranscribeCallbacks {
 
 export interface TranscribeResult {
   transcript: string;
+  /** Diarized segments from Soniox tokens (null when unavailable). */
+  segments: TranscriptSegment[] | null;
   fileId: string;
   transcriptionId: string;
 }
@@ -300,9 +357,9 @@ export async function transcribeBlob(
   await pollTranscription(transcriptionId, signal);
 
   onStage?.("fetching");
-  const transcript = await getTranscript(transcriptionId, signal);
+  const { text, segments } = await getTranscript(transcriptionId, signal);
 
-  return { transcript, fileId, transcriptionId };
+  return { transcript: text, segments, fileId, transcriptionId };
 }
 
 /**
@@ -313,7 +370,7 @@ export async function transcribeBlob(
 export async function resumePoll(
   transcriptionId: string,
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<TranscriptFetchResult> {
   await pollTranscription(transcriptionId, signal);
   return getTranscript(transcriptionId, signal);
 }

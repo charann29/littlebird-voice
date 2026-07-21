@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { SONIOX_API_KEY, RT_MODEL, LANGUAGE_HINTS } from "../config";
+import { RT_MODEL, LANGUAGE_HINTS } from "../config";
+import { apiFetch, getApiToken } from "../lib/api";
+import type { SonioxTokenResponse } from "../lib/api-types";
 import { WaveformViz, type WaveColor } from "../lib/waveform";
 
 /**
@@ -163,6 +165,15 @@ export function useSoniox(
       return;
     }
 
+    // Graceful no-token UX: live transcription needs the backend token to
+    // mint a realtime key. Recording (Recorder tab) still works without it.
+    if (!getApiToken()) {
+      setMicError(
+        "Transcription is not configured — paste your API token in Settings to connect to the server.",
+      );
+      return;
+    }
+
     const gen = ++genRef.current;
     setRecordState("connecting");
 
@@ -213,7 +224,16 @@ export function useSoniox(
       }
 
       const client = new SonioxClient({
-        apiKey: SONIOX_API_KEY,
+        // SDK ≥1.4 accepts an async apiKey getter; audio buffers until it
+        // resolves. The Worker mints a short-lived single-use realtime key,
+        // so the permanent Soniox key never reaches the browser.
+        apiKey: async () => {
+          const { api_key } = await apiFetch<SonioxTokenResponse>(
+            "/auth/soniox-token",
+            { method: "POST" },
+          );
+          return api_key;
+        },
         onStarted: () => {
           if (!isCurrent(gen)) return;
           setRecordState("listening");

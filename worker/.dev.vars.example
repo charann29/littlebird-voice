@@ -1,0 +1,3 @@
+# Copy to .dev.vars (gitignored) for local `wrangler dev`.
+SONIOX_API_KEY=your-soniox-api-key
+APP_AUTH_TOKEN=any-shared-secret

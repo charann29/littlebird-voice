@@ -7,6 +7,11 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     allowedHosts: true,
+    // Dev-time proxy to the Worker (`wrangler dev` on :8787) so the app can
+    // call same-origin /api/* exactly like in production.
+    proxy: {
+      "/api": "http://localhost:8787",
+    },
   },
   plugins: [
     react(),
