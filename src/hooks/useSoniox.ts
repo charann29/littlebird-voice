@@ -154,8 +154,11 @@ export function useSoniox(
     setMicError("");
     setInterimText("");
 
-    // Feature-detect microphone access before doing anything else.
-    if (!navigator.mediaDevices?.getUserMedia) {
+    const injectedGetStream = getStreamRef.current;
+
+    // Feature-detect microphone access before doing anything else (skipped
+    // when the caller injects a ready-made stream).
+    if (!injectedGetStream && !navigator.mediaDevices?.getUserMedia) {
       setMicError("Microphone not supported in this browser.");
       return;
     }
@@ -164,8 +167,11 @@ export function useSoniox(
     setRecordState("connecting");
 
     let stream: MediaStream;
+    const ownsStream = !injectedGetStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = injectedGetStream
+        ? await injectedGetStream()
+        : await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
       if (isCurrent(gen)) {
         setMicError("Microphone access denied — check browser permissions.");
@@ -174,13 +180,14 @@ export function useSoniox(
       return;
     }
 
-    // Session changed (tab switch / rapid restart) while getUserMedia was
-    // pending: release this orphan stream and bail — do not start anything.
+    // Session changed (tab switch / rapid restart) while acquisition was
+    // pending: release this orphan stream (if owned) and bail.
     if (!isCurrent(gen)) {
-      stream.getTracks().forEach((t) => t.stop());
+      if (ownsStream) stream.getTracks().forEach((t) => t.stop());
       return;
     }
     streamRef.current = stream;
+    ownsStreamRef.current = ownsStream;
 
     // Waveform shares the same stream. Color: yellow while connecting, green
     // once listening — read live from recordStateRef.
