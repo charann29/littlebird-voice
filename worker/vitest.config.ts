@@ -21,6 +21,10 @@ export default defineConfig(async () => {
             TEST_MIGRATIONS: migrations,
             APP_AUTH_TOKEN: "test-app-token",
             SONIOX_API_KEY: "test-soniox-key",
+            // Section 30 local seams: deterministic hash embeddings + the
+            // D1-backed dev vector index (no Vectorize/Workers AI in tests).
+            DEV_FAKE_AI: "1",
+            DEV_LOCAL_VECTOR: "1",
           },
         },
       }),

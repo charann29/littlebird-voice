@@ -11,6 +11,8 @@ declare global {
       INGEST_QUEUE: Queue<IngestMessage>;
       SONIOX_API_KEY: string;
       APP_AUTH_TOKEN: string;
+      DEV_FAKE_AI: string;
+      DEV_LOCAL_VECTOR: string;
       TEST_MIGRATIONS: D1Migration[];
     }
   }
