@@ -97,6 +97,8 @@ cp worker/.dev.vars.example worker/.dev.vars
 # edit worker/.dev.vars:
 #   SONIOX_API_KEY=<your-soniox-api-key>
 #   APP_AUTH_TOKEN=<any-shared-token-you-choose>
+#   DEV_FAKE_AI=1        # local AI stubs (no Cloudflare account needed)
+#   DEV_LOCAL_VECTOR=1   # local D1 vector index (Vectorize has no simulator)
 
 # 2. Apply D1 migrations to the local simulator
 cd worker && npx wrangler d1 migrations apply littlebird-voice --local && cd ..

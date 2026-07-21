@@ -46,7 +46,7 @@ export function SessionDetailPage() {
   const state = (location.state ?? {}) as LocationState;
 
   const detail = useSessionDetail(id);
-  const { recordings, stages, activeIds, transcribeOne, remove } =
+  const { recordings, stages, activeIds, transcribeOne, remove, rename } =
     useRecordings();
 
   // Prefer the reactive context row over the one-shot DB read so status
@@ -69,7 +69,8 @@ export function SessionDetailPage() {
 
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
   const [savedTitle, setSavedTitle] = useState<string | null>(null);
-  const title = savedTitle ?? serverTitle ?? fallbackTitle;
+  const localTitle = localLive?.title || null;
+  const title = savedTitle ?? localTitle ?? serverTitle ?? fallbackTitle;
 
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -104,8 +105,16 @@ export function SessionDetailPage() {
     setTitleDraft(null);
     if (!value || value === title) return;
     setSavedTitle(value);
-    // Rename persists server-side when a server row exists (PATCH).
-    if (serverMeta && getApiToken()) {
+    if (isLocal) {
+      // Local row: durable IndexedDB write + outbox sync — the rename
+      // survives reloads even offline, and reaches the server on drain.
+      try {
+        await rename(id, value);
+      } catch {
+        /* best-effort; local display keeps the new title */
+      }
+    } else if (serverMeta && getApiToken()) {
+      // Server-only row: persist directly via PATCH.
       try {
         await apiFetch(`/sessions/${id}`, {
           method: "PATCH",

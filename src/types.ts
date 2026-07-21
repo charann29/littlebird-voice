@@ -33,6 +33,12 @@ export interface SyncOp {
 export interface Recording {
   /** crypto.randomUUID() */
   id: string;
+  /**
+   * User-set title (rename), or null when never renamed (UI derives a
+   * fallback from createdAt). Persisted locally so renames survive reload
+   * offline, and synced to the server via the outbox upsert.
+   */
+  title: string | null;
   /** Date.now() at creation */
   createdAt: number;
   /** recording length in ms */

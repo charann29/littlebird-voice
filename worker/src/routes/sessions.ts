@@ -43,6 +43,17 @@ interface SessionRow {
 const SESSION_COLUMNS =
   "id, user_id, title, source, status, created_at, updated_at, duration_ms, mime_type, blob_size, self_speaker, transcript_revision, error";
 
+/**
+ * List projection: SESSION_COLUMNS plus a correlated EXISTS on summaries so
+ * the client can render "Summarized" pills without N+1 detail fetches. The
+ * subquery is a cheap index probe on summaries(session_id, kind) per row.
+ */
+const SESSION_LIST_COLUMNS = `${SESSION_COLUMNS
+  .split(", ")
+  .map((c) => `s.${c}`)
+  .join(", ")},
+  EXISTS (SELECT 1 FROM summaries m WHERE m.session_id = s.id) AS has_summary`;
+
 /** Fields the client may set via PUT/PATCH (user_id/revision are server-owned). */
 const WRITABLE_FIELDS = [
   "title",
@@ -114,17 +125,22 @@ export const sessionsRoutes = new Hono<App>()
     const stmt =
       before !== undefined
         ? c.env.DB.prepare(
-            `SELECT ${SESSION_COLUMNS} FROM sessions
-             WHERE user_id = ? AND created_at < ?
-             ORDER BY created_at DESC LIMIT ?`,
+            `SELECT ${SESSION_LIST_COLUMNS} FROM sessions s
+             WHERE s.user_id = ? AND s.created_at < ?
+             ORDER BY s.created_at DESC LIMIT ?`,
           ).bind(c.var.userId, before, limit)
         : c.env.DB.prepare(
-            `SELECT ${SESSION_COLUMNS} FROM sessions
-             WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`,
+            `SELECT ${SESSION_LIST_COLUMNS} FROM sessions s
+             WHERE s.user_id = ? ORDER BY s.created_at DESC LIMIT ?`,
           ).bind(c.var.userId, limit);
 
-    const { results } = await stmt.all<SessionRow>();
-    return c.json({ sessions: results });
+    const { results } = await stmt.all<SessionRow & { has_summary: number }>();
+    return c.json({
+      sessions: results.map((row) => ({
+        ...row,
+        has_summary: Boolean(row.has_summary),
+      })),
+    });
   })
 
   // PUT /sessions/:id — idempotent upsert keyed on the client UUID.
@@ -163,7 +179,10 @@ export const sessionsRoutes = new Hono<App>()
                              duration_ms, mime_type, blob_size, self_speaker, error)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (id) DO UPDATE SET
-         title = excluded.title,
+         -- An empty title means "client has no local rename" — keep the
+         -- existing (possibly PATCH-renamed) server title in that case.
+         title = CASE WHEN excluded.title = '' THEN sessions.title
+                      ELSE excluded.title END,
          source = excluded.source,
          status = excluded.status,
          created_at = excluded.created_at,

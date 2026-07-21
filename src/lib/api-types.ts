@@ -25,6 +25,11 @@ export interface SessionMeta {
   /** Server-side monotonic counter bumped by each transcript write. */
   transcript_revision: number;
   error: string | null;
+  /**
+   * True when at least one summary row exists (GET /api/sessions list only;
+   * computed via a correlated EXISTS server-side). Absent on other responses.
+   */
+  has_summary?: boolean;
 }
 
 /** One diarized transcript segment. */

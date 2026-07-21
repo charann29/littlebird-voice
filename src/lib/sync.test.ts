@@ -20,6 +20,7 @@ import { drainOutbox, getPendingOpCount } from "./sync";
 function makeRecording(overrides: Partial<Recording> = {}): Recording {
   return {
     id: crypto.randomUUID(),
+    title: null,
     createdAt: Date.now(),
     durationMs: 1000,
     mimeType: "audio/webm;codecs=opus",
@@ -115,6 +116,26 @@ describe("drainOutbox", () => {
     });
     expect(await getPendingOpCount()).toBe(0);
     expect((await getRecording(rec.id))?.syncState).toBe("synced");
+  });
+
+  it("includes the local rename title in the session PUT body", async () => {
+    const rec = makeRecording({ title: "Renamed locally", segments: null, transcript: null });
+    const calls = stubFetch(() => ok());
+    await putRecordingAndEnqueue(rec);
+
+    await drainOutbox();
+
+    expect(calls[0].body).toMatchObject({ title: "Renamed locally" });
+  });
+
+  it("sends an empty title when never renamed (server keeps its own)", async () => {
+    const rec = makeRecording({ title: null, segments: null, transcript: null });
+    const calls = stubFetch(() => ok());
+    await putRecordingAndEnqueue(rec);
+
+    await drainOutbox();
+
+    expect(calls[0].body).toMatchObject({ title: "" });
   });
 
   it("falls back to one full-text segment when no diarized segments exist", async () => {

@@ -21,7 +21,7 @@ import {
 import type { Recording, SyncOp } from "../types";
 
 const DB_NAME = "littlebird-voice";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE = "recordings";
 const OUTBOX = "syncOutbox";
 
@@ -74,6 +74,22 @@ export function getDB(): Promise<IDBPDatabase<LittlebirdDB>> {
             }
             if (dirty) void cursor.update(rec);
             return cursor.continue().then(backfill);
+          });
+        }
+        if (oldVersion < 3) {
+          // v3: Recording.title (local-only rename persistence) — backfill
+          // null so `rec.title` is always present on stored rows.
+          const store = tx.objectStore(STORE);
+          void store.openCursor().then(function backfillTitle(
+            cursor,
+          ): Promise<void> | void {
+            if (!cursor) return;
+            const rec = cursor.value;
+            if (rec.title === undefined) {
+              rec.title = null;
+              void cursor.update(rec);
+            }
+            return cursor.continue().then(backfillTitle);
           });
         }
       },

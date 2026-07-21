@@ -23,6 +23,7 @@ import {
 function makeRecording(overrides: Partial<Recording> = {}): Recording {
   return {
     id: crypto.randomUUID(),
+    title: null,
     createdAt: Date.now(),
     durationMs: 1000,
     mimeType: "audio/webm;codecs=opus",
@@ -163,6 +164,48 @@ describe("local-only updateRecording", () => {
 
     expect(await countOps()).toBe(before);
     expect((await getRecording(rec.id))?.status).toBe("transcribing");
+  });
+});
+
+describe("v3 upgrade (title backfill)", () => {
+  it("backfills title: null on pre-v3 rows and persists renames", async () => {
+    // Build a v2 database by hand: same stores, a row WITHOUT `title`.
+    const legacy = { ...makeRecording() } as Record<string, unknown>;
+    delete legacy.title;
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open("littlebird-voice", 2);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        const store = db.createObjectStore("recordings", { keyPath: "id" });
+        store.createIndex("by-createdAt", "createdAt");
+        store.createIndex("by-status", "status");
+        const outbox = db.createObjectStore("syncOutbox", { keyPath: "opId" });
+        outbox.createIndex("by-recordingId", "recordingId");
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction("recordings", "readwrite");
+        tx.objectStore("recordings").put(legacy);
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => reject(tx.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+
+    // Opening through getDB() runs the v3 upgrade + backfill.
+    const stored = await getRecording(legacy.id as string);
+    expect(stored).toBeDefined();
+    expect(stored?.title).toBeNull();
+
+    // A rename persists durably (survives "reload" = fresh read).
+    await updateRecordingAndEnqueue(legacy.id as string, {
+      title: "Renamed offline",
+    });
+    const renamed = await getRecording(legacy.id as string);
+    expect(renamed?.title).toBe("Renamed offline");
   });
 });
 

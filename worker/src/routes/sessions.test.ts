@@ -106,6 +106,62 @@ describe("sessions CRUD", () => {
     expect(badCursor.status).toBe(400);
   });
 
+  it("GET list includes has_summary (EXISTS over summaries)", async () => {
+    const shared = testEnv();
+    // Far-future window so rows from other tests can't interleave.
+    const base = Date.now() + 20_000_000;
+    const withSummary = crypto.randomUUID();
+    const withoutSummary = crypto.randomUUID();
+    await api(`/api/sessions/${withSummary}`, {
+      method: "PUT",
+      body: sessionBody({ created_at: base + 1, title: "summarized" }),
+      env: shared.env,
+    });
+    await api(`/api/sessions/${withoutSummary}`, {
+      method: "PUT",
+      body: sessionBody({ created_at: base, title: "plain" }),
+      env: shared.env,
+    });
+    await api(`/api/sessions/${withSummary}/summaries/meeting_summary`, {
+      method: "PUT",
+      body: { payload: { tl_dr: "hi" } },
+      env: shared.env,
+    });
+
+    const res = await api("/api/sessions?limit=2", { env: shared.env });
+    expect(res.status).toBe(200);
+    const { sessions } = (await res.json()) as {
+      sessions: { id: string; has_summary: boolean }[];
+    };
+    const byId = new Map(sessions.map((s) => [s.id, s]));
+    expect(byId.get(withSummary)?.has_summary).toBe(true);
+    expect(byId.get(withoutSummary)?.has_summary).toBe(false);
+  });
+
+  it("PUT with an empty title keeps the existing server title", async () => {
+    const id = crypto.randomUUID();
+    await api(`/api/sessions/${id}`, {
+      method: "PUT",
+      body: sessionBody({ title: "Renamed on server" }),
+    });
+    // A client with no local rename syncs title: "" — must not clobber.
+    const res = await api(`/api/sessions/${id}`, {
+      method: "PUT",
+      body: sessionBody({ title: "" }),
+    });
+    expect(res.status).toBe(200);
+    const { session } = (await res.json()) as { session: { title: string } };
+    expect(session.title).toBe("Renamed on server");
+
+    // A non-empty title still overwrites.
+    const rename = await api(`/api/sessions/${id}`, {
+      method: "PUT",
+      body: sessionBody({ title: "Client rename" }),
+    });
+    const renamed = (await rename.json()) as { session: { title: string } };
+    expect(renamed.session.title).toBe("Client rename");
+  });
+
   it("PATCH persists self_speaker and partial fields", async () => {
     const id = crypto.randomUUID();
     await api(`/api/sessions/${id}`, { method: "PUT", body: sessionBody() });

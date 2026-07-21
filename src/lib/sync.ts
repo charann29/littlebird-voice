@@ -69,7 +69,9 @@ function backoffElapsed(op: SyncOp, now: number): boolean {
 
 function sessionBodyFor(rec: Recording): PutSessionBody {
   return {
-    title: "",
+    // Local rename (if any); the server keeps its own title when this is
+    // empty, so an un-renamed client can never clobber a server-side title.
+    title: rec.title ?? "",
     source: "mic",
     status: rec.status,
     created_at: rec.createdAt,

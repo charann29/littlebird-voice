@@ -62,6 +62,8 @@ export interface RecordingsContextValue {
   transcribeOne: (id: string) => Promise<void>;
   transcribeAllPending: () => Promise<void>;
   remove: (id: string) => Promise<void>;
+  /** Persist a rename locally (survives reload) and enqueue a server sync. */
+  rename: (id: string, title: string) => Promise<void>;
 }
 
 const RecordingsContext = createContext<RecordingsContextValue | null>(null);
@@ -154,6 +156,7 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
     async (captured: CapturedAudio): Promise<Recording> => {
       const recording: Recording = {
         id: crypto.randomUUID(),
+        title: null,
         createdAt: Date.now(),
         durationMs: captured.durationMs,
         mimeType: captured.mimeType,
@@ -323,6 +326,18 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
     [drainPending],
   );
 
+  /**
+   * Rename a local recording: durable IndexedDB write + outbox upsert (one
+   * transaction), so the title survives reloads offline and reaches the
+   * server on the next drain.
+   */
+  const rename = useCallback(
+    async (id: string, title: string) => {
+      await persistAndSync(id, { title });
+    },
+    [persistAndSync],
+  );
+
   const remove = useCallback(async (id: string) => {
     // Tombstone first so any late persistence for this id is dropped.
     tombstonesRef.current.add(id);
@@ -472,6 +487,7 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
     transcribeOne,
     transcribeAllPending,
     remove,
+    rename,
   };
 
   return (

@@ -13,6 +13,7 @@ import type { SessionDetail } from "../hooks/useSessionDetail";
 function recording(over: Partial<Recording> = {}): Recording {
   return {
     id: "rec-1",
+    title: null,
     createdAt: 1_700_000_000_000,
     durationMs: 61_000,
     mimeType: "audio/webm",
@@ -47,6 +48,7 @@ vi.mock("../hooks/useSessionDetail", () => ({
 }));
 
 const removeMock = vi.fn(async () => {});
+const renameMock = vi.fn(async () => {});
 const recordingsState: { recordings: Recording[] } = { recordings: [] };
 vi.mock("../hooks/useRecordings", () => ({
   useRecordings: () => ({
@@ -56,6 +58,7 @@ vi.mock("../hooks/useRecordings", () => ({
     transcribeOne: vi.fn(),
     transcribeAllPending: vi.fn(),
     remove: removeMock,
+    rename: renameMock,
   }),
 }));
 
@@ -82,6 +85,7 @@ function renderAt(id: string) {
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   removeMock.mockClear();
+  renameMock.mockClear();
   recordingsState.recordings = [];
   detailState.value = {
     local: null,
@@ -159,6 +163,33 @@ describe("SessionDetailPage", () => {
     expect(
       screen.getByRole("button", { name: "Delete session" }),
     ).toBeInTheDocument();
+  });
+
+  it("renaming a local session calls rename() (durable IndexedDB + sync)", async () => {
+    const user = userEvent.setup();
+    const rec = recording();
+    recordingsState.recordings = [rec];
+    detailState.value = { ...detailState.value, local: rec, notFound: false };
+    renderAt("rec-1");
+
+    await user.click(screen.getByRole("button", { name: /Voice note/ }));
+    const input = screen.getByRole("textbox", { name: "Session title" });
+    await user.clear(input);
+    await user.type(input, "My meeting{Enter}");
+
+    await waitFor(() =>
+      expect(renameMock).toHaveBeenCalledWith("rec-1", "My meeting"),
+    );
+    expect(screen.getByText("My meeting")).toBeInTheDocument();
+  });
+
+  it("shows the locally persisted title over the derived fallback", () => {
+    const rec = recording({ title: "Persisted rename" });
+    recordingsState.recordings = [rec];
+    detailState.value = { ...detailState.value, local: rec, notFound: false };
+    renderAt("rec-1");
+
+    expect(screen.getByText("Persisted rename")).toBeInTheDocument();
   });
 
   it("server-only rows show the audio-stays-local note instead of a player", () => {

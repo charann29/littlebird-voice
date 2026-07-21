@@ -10,6 +10,7 @@ import type { SessionMeta } from "./api-types";
 
 function rec(overrides: Partial<Recording> & { id: string }): Recording {
   return {
+    title: null,
     createdAt: Date.now(),
     durationMs: 60_000,
     mimeType: "audio/webm",
@@ -85,6 +86,20 @@ describe("mergeSessions", () => {
     expect(items[0].isServerOnly).toBe(true);
     expect(items[0].hasLocalAudio).toBe(false);
     expect(items[0].title).toBe("Remote");
+  });
+
+  it("a local rename wins over the server title", () => {
+    const [item] = mergeSessions(
+      [rec({ id: "a", title: "Local rename" })],
+      [meta({ id: "a", title: "Server title" })],
+    );
+    expect(item.title).toBe("Local rename");
+    // Without a local rename the server title still applies.
+    const [fallback] = mergeSessions(
+      [rec({ id: "b", title: null })],
+      [meta({ id: "b", title: "Server title" })],
+    );
+    expect(fallback.title).toBe("Server title");
   });
 
   it("falls back to a derived title and mic source for local-only rows", () => {

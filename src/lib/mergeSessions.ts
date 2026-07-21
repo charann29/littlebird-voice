@@ -4,8 +4,9 @@
  *
  * - Join key: the client UUID (Recording.id === sessions.id).
  * - Ids present locally: the local Recording wins for status, createdAt,
- *   durationMs, error, and blob presence — local is source of truth until
- *   synced. The server row contributes title and source.
+ *   durationMs, error, title (when renamed locally), and blob presence —
+ *   local is source of truth until synced. The server row contributes source
+ *   and the title fallback when no local rename exists.
  * - Ids only on the server: read-only metadata rows (hasLocalAudio: false).
  * - server === null (offline / no token / fetch failed): local-only list.
  * - Output sorted createdAt desc; day grouping is a separate helper.
@@ -53,8 +54,9 @@ export function mergeSessions(
     const remote = serverById.get(rec.id);
     byId.set(rec.id, {
       id: rec.id,
-      // Server contributes title/source; v1 Recording has neither.
-      title: remote?.title || defaultTitle(rec.createdAt),
+      // Local rename wins (offline source of truth), then the server title,
+      // then a derived fallback.
+      title: rec.title || remote?.title || defaultTitle(rec.createdAt),
       source: remote?.source ?? "mic",
       // Local wins for status/createdAt/duration/error until synced.
       status: rec.status,
@@ -88,10 +90,9 @@ export function mergeSessions(
   return [...byId.values()].sort((a, b) => b.createdAt - a.createdAt);
 }
 
-/** `has_summary` is an assumed optional contract addition from section 10. */
+/** `has_summary` is only present on the GET /api/sessions list response. */
 function readHasSummary(meta: SessionMeta | undefined): boolean {
-  if (!meta) return false;
-  return Boolean((meta as { has_summary?: boolean }).has_summary);
+  return Boolean(meta?.has_summary);
 }
 
 export interface DayGroup {
