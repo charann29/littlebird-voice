@@ -168,6 +168,9 @@ function abortQuietly(
     "readwrite"
   >,
 ): void {
+  // tx.done rejects with AbortError after abort() — swallow it so the
+  // original error (rethrown by the caller) is the only surfaced failure.
+  tx.done.catch(() => {});
   try {
     tx.abort();
   } catch {
