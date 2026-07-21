@@ -49,18 +49,19 @@ export interface AskStreamResult {
   sources?: AskSource[];
 }
 
-/* ---- section 30 contract (thin local mirror of memory/search types) ---- */
+/* ---- section 30 contract (worker/src/memory/search.ts) ---- */
 
-/** Request shape of searchMemory (subset this section passes). */
-export interface MemorySearchRequest {
+/** Request shape this section passes to searchMemory. */
+export interface AskMemorySearchRequest {
   query: string;
   top_k: number;
-  filters?: { kind?: string[]; session_id?: string };
+  filters?: { kind?: ("transcript" | "summary")[]; session_id?: string };
 }
 
 /**
- * Result hit as consumed here. With the kind filter every hit is
- * session-backed: session_id/session_title/created_at are present.
+ * Result hit as consumed here (structural subset of section 30's
+ * MemorySearchResult). With the kind filter every hit is session-backed:
+ * session_id/session_title/created_at are present.
  */
 export interface MemorySearchHit {
   text: string;
@@ -76,18 +77,13 @@ export interface MemorySearchHit {
 export type SearchMemoryFn = (
   env: Env,
   userId: string,
-  request: MemorySearchRequest,
+  request: AskMemorySearchRequest,
 ) => Promise<{ results: MemorySearchHit[] }>;
 
 /**
- * INTEGRATION POINT (section 30 — memory search).
- * Resolves `searchMemory` from worker/src/memory/search.ts via a guarded
- * dynamic import (indirected specifier so tsc/bundlers don't hard-require
- * the module) so this section builds/tests before 30-T4 lands. WHEN SECTION
- * 30 LANDS: replace the body with
- *   `const { searchMemory } = await import("../memory/search"); return searchMemory;`
- * (a literal specifier, so the bundler includes the module). If the module
- * is absent, scope=all degrades to a canned "not available" answer.
+ * Section 30's `searchMemory` (worker/src/memory/search.ts), called
+ * in-process — never an HTTP self-call. Its MemorySearchResponse is a
+ * structural superset of the local request/hit types above.
  */
 /** Test seam: lets vitest inject a scripted searchMemory. */
 let testSearchMemoryOverride: SearchMemoryFn | null = null;
@@ -97,15 +93,8 @@ export function setTestSearchMemory(fn: SearchMemoryFn | null): void {
 
 export async function resolveSearchMemory(): Promise<SearchMemoryFn | null> {
   if (testSearchMemoryOverride) return testSearchMemoryOverride;
-  try {
-    const specifier = ["..", "memory", "search"].join("/");
-    const mod = (await import(/* @vite-ignore */ specifier)) as {
-      searchMemory?: SearchMemoryFn;
-    };
-    return typeof mod.searchMemory === "function" ? mod.searchMemory : null;
-  } catch {
-    return null;
-  }
+  const { searchMemory } = await import("../memory/search");
+  return searchMemory;
 }
 
 /* ------------------------------------------------------------- scope=session */

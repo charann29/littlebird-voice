@@ -283,7 +283,7 @@ describe("POST /api/ask", () => {
 
   it("scope=all always passes the kind filter and emits sources in the final event", async () => {
     const searchMemory = vi.fn(
-      async (): Promise<{ results: askModule.MemorySearchHit[] }> => ({
+      async (): Promise<{ results: MemorySearchHit[] }> => ({
         results: [
           {
             text: "we offered a 12% discount",
@@ -302,10 +302,8 @@ describe("POST /api/ask", () => {
         ],
       }),
     );
-    vi.spyOn(askModule, "resolveSearchMemory").mockResolvedValue(searchMemory);
+    setTestSearchMemory(searchMemory);
 
-    // Route imports askAll from the module, so spy indirection only works if
-    // askAll itself consults resolveSearchMemory — it does (no override given).
     const res = await api("/api/ask", {
       method: "POST",
       body: { question: "what discount did we offer acme", scope: "all" },
