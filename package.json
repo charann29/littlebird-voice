@@ -15,7 +15,8 @@
     "@soniox/speech-to-text-web": "^1.4.0",
     "idb": "^8.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-router": "^7.18.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
