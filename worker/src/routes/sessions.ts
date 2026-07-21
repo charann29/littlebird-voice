@@ -17,6 +17,7 @@ import {
   saveTranscript,
   type SegmentInput,
 } from "../services/persistence";
+import { deleteMemoryFor } from "../memory/ingest";
 
 type App = { Bindings: Env; Variables: AuthVariables };
 
@@ -261,13 +262,15 @@ export const sessionsRoutes = new Hono<App>()
     return c.json({ session });
   })
 
-  // DELETE /sessions/:id — cascades segments + summaries.
+  // DELETE /sessions/:id — cascades segments + summaries, and propagates to
+  // memory (chunks + vectors for BOTH transcript and summary kinds).
   .delete("/sessions/:id", async (c) => {
     const id = c.req.param("id");
     const existing = await getOwnedSession(c.env, c.var.userId, id);
     if (!existing) {
       return errorResponse(c, 404, "not_found", `Session ${id} not found`);
     }
+    await deleteMemoryFor(c.env, { session_id: id });
     await c.env.DB.prepare(
       "DELETE FROM sessions WHERE id = ? AND user_id = ?",
     )
