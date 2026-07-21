@@ -93,7 +93,7 @@ describe("useAskAi", () => {
     unmount();
     await Promise.resolve();
 
-    expect(requestSignal?.aborted).toBe(true);
+    expect((requestSignal as AbortSignal | null)?.aborted).toBe(true);
   });
 
   it("ignores blank questions", () => {
