@@ -13,6 +13,13 @@ declare global {
       APP_AUTH_TOKEN: string;
       DEV_FAKE_AI: string;
       DEV_LOCAL_VECTOR: string;
+      // Section 40 (integrations) test bindings:
+      INTEGRATIONS_TOKEN_KEY: string;
+      OAUTH_STATE_SIGNING_KEY: string;
+      GOOGLE_OAUTH_CLIENT_ID: string;
+      GOOGLE_OAUTH_CLIENT_SECRET: string;
+      APP_BASE_URL: string;
+      WORKER_BASE_URL: string;
       TEST_MIGRATIONS: D1Migration[];
     }
   }

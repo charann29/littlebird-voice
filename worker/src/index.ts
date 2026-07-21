@@ -14,12 +14,22 @@ import { aiRoutes } from "./routes/ai";
 import { memoryRoutes } from "./routes/memory";
 import { sessionsRoutes } from "./routes/sessions";
 import { sonioxRoutes } from "./routes/soniox";
+import {
+  integrationsCallbackRoutes,
+  integrationsRoutes,
+} from "./integrations/routes";
+import { autoCreateCalendarSessions } from "./integrations/calendarSync";
 import { queueHandler } from "./queue/consumer";
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 // Unauthenticated liveness probe.
 app.get("/api/health", (c) => c.json({ ok: true }));
+
+// OAuth callbacks are browser navigations without an Authorization header —
+// they MUST be mounted before the auth middleware. Identity comes from the
+// signed, single-use state row, never from the request (section 40).
+app.route("/api", integrationsCallbackRoutes);
 
 // Everything else under /api requires the shared bearer token.
 app.use("/api/*", authMiddleware);
@@ -31,6 +41,7 @@ app.route("/api", sessionsRoutes);
 app.route("/api", sonioxRoutes);
 app.route("/api", aiRoutes);
 app.route("/api", memoryRoutes);
+app.route("/api", integrationsRoutes);
 
 // Canonical error schema for anything a route didn't handle.
 app.notFound((c) => {
@@ -56,4 +67,17 @@ export default {
   // memory ingestion and to section 20's auto-summary handler; failed
   // messages retry per wrangler.jsonc (max_retries 3 → littlebird-ingest-dlq).
   queue: queueHandler,
+
+  // Calendar auto-create cron (section 40, decisions.md #4): pre-creates
+  // sessions for upcoming events, deduped via calendar_event_sessions.
+  // No-op when no google-calendar connection / secrets exist (local dev).
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil(
+      autoCreateCalendarSessions(env).then((r) => {
+        console.log(
+          `calendar auto-create: users=${r.usersProcessed} events=${r.eventsSeen} created=${r.sessionsCreated} errors=${r.errors}`,
+        );
+      }),
+    );
+  },
 } satisfies ExportedHandler<Env>;

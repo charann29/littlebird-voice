@@ -7,3 +7,18 @@ APP_AUTH_TOKEN=any-shared-secret
 DEV_FAKE_AI=1
 # Optional: override the LLM model id used when env.AI IS available.
 # AI_MODEL=@cf/meta/llama-3.3-70b-instruct-fp8-fast
+
+# --- Integrations (section 40) — ALL optional for local dev. The Worker and
+# every non-integration route work without them; Connect returns 501
+# not_configured until the relevant provider secrets are set.
+# Generate both keys with: openssl rand -base64 32
+# INTEGRATIONS_TOKEN_KEY=
+# OAUTH_STATE_SIGNING_KEY=
+# GOOGLE_OAUTH_CLIENT_ID=
+# GOOGLE_OAUTH_CLIENT_SECRET=
+# SLACK_CLIENT_ID=
+# SLACK_CLIENT_SECRET=
+# NOTION_CLIENT_ID=
+# NOTION_CLIENT_SECRET=
+# Calendar auto-create cron lookahead (hours, default 24):
+# CALENDAR_AUTOCREATE_WINDOW_HOURS=24

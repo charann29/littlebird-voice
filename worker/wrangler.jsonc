@@ -73,7 +73,25 @@
   // is what section 20's WorkersAiProvider uses when deployed; local dev
   // (DEV_FAKE_AI=1) uses the deterministic stub provider instead.
   "vars": {
-    "AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+    "AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    // Section 40 (integrations): OAuth redirect bases — NEVER derived from the
+    // incoming Host header. Local dev defaults; point both at the deployed
+    // URLs (or custom domain) for a real deploy.
+    "APP_BASE_URL": "http://localhost:5173",
+    "WORKER_BASE_URL": "http://localhost:8787"
+    // Integration secrets (via `wrangler secret put` / .dev.vars — never here):
+    //   GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET
+    //   SLACK_CLIENT_ID / SLACK_CLIENT_SECRET
+    //   NOTION_CLIENT_ID / NOTION_CLIENT_SECRET
+    //   INTEGRATIONS_TOKEN_KEY / OAUTH_STATE_SIGNING_KEY (openssl rand -base64 32)
+    // All optional: local dev works without them until Connect is invoked.
+  },
+  // Section 40: calendar auto-create cron (decisions.md #4) — every 15 min,
+  // pre-creates sessions for events starting within the lookahead window
+  // (CALENDAR_AUTOCREATE_WINDOW_HOURS, default 24), deduped per event.
+  // Local dev: `wrangler dev --test-scheduled` + curl "http://localhost:8787/__scheduled".
+  "triggers": {
+    "crons": ["*/15 * * * *"]
   },
   "assets": {
     "directory": "../dist",

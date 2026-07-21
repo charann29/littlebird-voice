@@ -38,6 +38,34 @@ export interface Env {
   APP_AUTH_TOKEN: string;
   /** "1" = use the D1-backed local dev vector index instead of Vectorize. */
   DEV_LOCAL_VECTOR?: string;
+
+  // --- Integrations (section 40, Track B) ------------------------------------
+  // ALL optional: local dev must boot and serve every non-integration route
+  // (and the integrations list endpoint) without any provider credentials.
+  // Missing secrets only surface when the user invokes Connect → 501
+  // not_configured.
+
+  /** Public base URL of the app (redirect target after OAuth callbacks).
+   *  Local dev default: http://localhost:5173 (vite dev server). */
+  APP_BASE_URL?: string;
+  /** Public base URL of this Worker (OAuth redirect_uri base). Never derived
+   *  from the incoming Host header. Local dev default: http://localhost:8787. */
+  WORKER_BASE_URL?: string;
+  /** 32 bytes base64 — AES-256-GCM key for token ciphertext (secret). */
+  INTEGRATIONS_TOKEN_KEY?: string;
+  /** HMAC-SHA256 key for OAuth state signing (secret). */
+  OAUTH_STATE_SIGNING_KEY?: string;
+  /** Google OAuth app (Calendar + Gmail connectors share it). */
+  GOOGLE_OAUTH_CLIENT_ID?: string;
+  GOOGLE_OAUTH_CLIENT_SECRET?: string;
+  /** Slack app (bot token flow, rotation disabled). */
+  SLACK_CLIENT_ID?: string;
+  SLACK_CLIENT_SECRET?: string;
+  /** Notion public integration. */
+  NOTION_CLIENT_ID?: string;
+  NOTION_CLIENT_SECRET?: string;
+  /** Calendar auto-create cron lookahead in hours (default 24). */
+  CALENDAR_AUTOCREATE_WINDOW_HOURS?: string;
   /**
    * "1" = deterministic local-dev AI: hash embeddings (section 30) AND the
    * stub LLM provider (section 20) instead of Workers AI. Never in prod.

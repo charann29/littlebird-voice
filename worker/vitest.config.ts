@@ -25,6 +25,14 @@ export default defineConfig(async () => {
             // D1-backed dev vector index (no Vectorize/Workers AI in tests).
             DEV_FAKE_AI: "1",
             DEV_LOCAL_VECTOR: "1",
+            // Section 40 (integrations): deterministic test keys + fake
+            // Google OAuth app; provider HTTP is mocked via stubbed fetch.
+            INTEGRATIONS_TOKEN_KEY: "9jJVsRLZ9AsGGxvsIZ3HYyWDL4WYAY1TQK+I2AhQfvM=",
+            OAUTH_STATE_SIGNING_KEY: "test-state-signing-key",
+            GOOGLE_OAUTH_CLIENT_ID: "test-google-client-id",
+            GOOGLE_OAUTH_CLIENT_SECRET: "test-google-client-secret",
+            APP_BASE_URL: "https://app.example.com",
+            WORKER_BASE_URL: "https://worker.example.com",
           },
         },
       }),

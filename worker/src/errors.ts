@@ -12,7 +12,12 @@ export type ErrorCode =
   | "not_found"
   | "bad_request"
   | "upstream_error"
-  | "internal_error";
+  | "internal_error"
+  // Integrations (section 40):
+  | "not_connected" // action on a provider with no active connection (404)
+  | "not_configured" // provider OAuth secrets missing in this environment (501)
+  | "provider_error" // upstream provider API failure (502)
+  | "reconnect_required"; // refresh token dead / connection flipped to error (409)
 
 export interface ErrorBody {
   error: { code: ErrorCode; message: string };
