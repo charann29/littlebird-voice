@@ -34,13 +34,32 @@ function transcriptMsg(
 }
 
 describe("dispatchIngestMessage", () => {
-  it("routes index jobs (and default no-jobs) to ingestMemory", async () => {
+  it("runs ALL applicable jobs (index + summarize) for jobless transcript messages", async () => {
     const sessionId = crypto.randomUUID();
     await seedSession(sessionId);
     await seedSegments(sessionId, [{ speaker: "1", text: "dispatch me" }]);
 
     const d = deps();
-    await dispatchIngestMessage(env as Env, transcriptMsg(sessionId), d);
+    const message = transcriptMsg(sessionId); // jobs omitted → all applicable
+    await dispatchIngestMessage(env as Env, message, d);
+    expect(await chunkCount(sessionId, "transcript")).toBe(1);
+    // Regression: omitted jobs used to default to ["index"], silently
+    // skipping auto-summary on transcript completion.
+    expect(d.handleTranscriptAutoSummary).toHaveBeenCalledTimes(1);
+    expect(d.handleTranscriptAutoSummary).toHaveBeenCalledWith(env, message);
+  });
+
+  it("honors explicit jobs: ['index'] on transcripts (no auto-summary)", async () => {
+    const sessionId = crypto.randomUUID();
+    await seedSession(sessionId);
+    await seedSegments(sessionId, [{ speaker: "1", text: "index only" }]);
+
+    const d = deps();
+    await dispatchIngestMessage(
+      env as Env,
+      transcriptMsg(sessionId, { jobs: ["index"] }),
+      d,
+    );
     expect(await chunkCount(sessionId, "transcript")).toBe(1);
     expect(d.handleTranscriptAutoSummary).not.toHaveBeenCalled();
   });
@@ -75,13 +94,25 @@ describe("dispatchIngestMessage", () => {
     expect(d.handleTranscriptAutoSummary).toHaveBeenCalledWith(env, message);
   });
 
-  it("does NOT auto-summarize summary-kind or jobless transcript messages", async () => {
+  it("does NOT auto-summarize summary-kind messages (even with summarize job)", async () => {
     const sessionId = crypto.randomUUID();
     await seedSession(sessionId);
     const d = deps();
     await dispatchIngestMessage(
       env as Env,
       { userId: SINGLE_USER_ID, kind: "summary", parentId: sessionId, sourceRevision: 1, jobs: ["summarize", "index"] },
+      d,
+    );
+    expect(d.handleTranscriptAutoSummary).not.toHaveBeenCalled();
+  });
+
+  it("jobless non-transcript kinds default to index only (no auto-summary)", async () => {
+    const sessionId = crypto.randomUUID();
+    await seedSession(sessionId);
+    const d = deps();
+    await dispatchIngestMessage(
+      env as Env,
+      { userId: SINGLE_USER_ID, kind: "summary", parentId: sessionId, sourceRevision: 1 },
       d,
     );
     expect(d.handleTranscriptAutoSummary).not.toHaveBeenCalled();

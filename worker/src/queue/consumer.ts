@@ -5,7 +5,9 @@
  * message:
  *  - `kind: "document"` and any message whose `jobs` include "index" (or omit
  *    `jobs`) → `ingestMemory` (chunk + embed + index).
- *  - `kind: "transcript"` messages whose `jobs` include "summarize" → section
+ *  - `kind: "transcript"` messages whose `jobs` include "summarize" (or omit
+ *    `jobs` — omitted means "all applicable jobs" per IngestMessage's
+ *    contract, and both index AND summarize apply to transcripts) → section
  *    20's `handleTranscriptAutoSummary(env, msg)`.
  *
  * Failures THROW (message.retry()) so the queue redelivers; after
@@ -15,7 +17,7 @@
  */
 
 import type { Env } from "../env";
-import type { IngestMessage } from "../services/ingest-message";
+import type { IngestJob, IngestMessage } from "../services/ingest-message";
 import { ingestMemory, type IngestDeps } from "../memory/ingest";
 import { handleTranscriptAutoSummary } from "../ai/summarize";
 
@@ -52,7 +54,11 @@ export async function dispatchIngestMessage(
   msg: IngestMessage,
   deps: DispatcherDeps = {},
 ): Promise<void> {
-  const jobs = msg.jobs ?? ["index"];
+  // Omitted `jobs` means "all applicable" (IngestMessage contract): both
+  // index and summarize apply to transcripts; only index applies to
+  // summary/document kinds. Explicit `jobs` are honored as-is.
+  const jobs: IngestJob[] =
+    msg.jobs ?? (msg.kind === "transcript" ? ["index", "summarize"] : ["index"]);
 
   // Index job: kind "document" always indexes; others when jobs include it.
   if (msg.kind === "document" || jobs.includes("index")) {
