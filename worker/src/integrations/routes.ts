@@ -37,6 +37,16 @@ import {
 } from "./store";
 import { getConnector } from "./registry";
 import { listUpcomingEvents } from "./connectors/googleCalendar";
+import { ValidationError } from "./connectors/shared";
+import { sendGmail } from "./connectors/gmail";
+import { listSlackChannels, postSlackMessage } from "./connectors/slack";
+import {
+  exportNotionSummary,
+  importNotionPages,
+  listNotionDatabases,
+  listNotionPages,
+} from "./connectors/notion";
+import { ingestMemoryDocument } from "../services/memory-document";
 
 type App = { Bindings: Env; Variables: AuthVariables };
 
@@ -303,4 +313,176 @@ export const integrationsRoutes = new Hono<App>()
       }
       throw err;
     }
+  })
+
+  // -------------------------------------------------------------------------
+  // Gmail / Slack / Notion action endpoints (plan §4). Each resolves the
+  // active connection, decrypts the token server-side via getAccessToken,
+  // and runs the connector action inside runAction's shared error mapping.
+  // -------------------------------------------------------------------------
+
+  // POST /integrations/gmail/send { to, subject, bodyText, bodyHtml?, sessionId? }
+  .post("/integrations/gmail/send", async (c) => {
+    const body = await readJson(c);
+    if (!body) return errorResponse(c, 400, "bad_request", "Invalid JSON body");
+    if (
+      !Array.isArray(body.to) ||
+      body.to.some((addr) => typeof addr !== "string")
+    ) {
+      return errorResponse(c, 400, "bad_request", "'to' must be an array of strings");
+    }
+    for (const field of ["subject", "bodyText"] as const) {
+      if (typeof body[field] !== "string") {
+        return errorResponse(c, 400, "bad_request", `'${field}' must be a string`);
+      }
+    }
+    for (const field of ["bodyHtml", "sessionId"] as const) {
+      if (body[field] !== undefined && typeof body[field] !== "string") {
+        return errorResponse(c, 400, "bad_request", `'${field}' must be a string`);
+      }
+    }
+    return runAction(c, "gmail", (accessToken) =>
+      sendGmail(accessToken, {
+        to: body.to as string[],
+        subject: body.subject as string,
+        bodyText: body.bodyText as string,
+        bodyHtml: body.bodyHtml as string | undefined,
+        sessionId: body.sessionId as string | undefined,
+      }),
+    );
+  })
+
+  // GET /integrations/slack/channels → { channels: [{ id, name }] }
+  .get("/integrations/slack/channels", async (c) =>
+    runAction(c, "slack", (accessToken) => listSlackChannels(accessToken)),
+  )
+
+  // POST /integrations/slack/send { channelId, text } → { ok, ts }
+  .post("/integrations/slack/send", async (c) => {
+    const body = await readJson(c);
+    if (!body) return errorResponse(c, 400, "bad_request", "Invalid JSON body");
+    for (const field of ["channelId", "text"] as const) {
+      if (typeof body[field] !== "string") {
+        return errorResponse(c, 400, "bad_request", `'${field}' must be a string`);
+      }
+    }
+    return runAction(c, "slack", (accessToken) =>
+      postSlackMessage(accessToken, {
+        channelId: body.channelId as string,
+        text: body.text as string,
+      }),
+    );
+  })
+
+  // GET /integrations/notion/databases → { databases: [{ id, title }] }
+  .get("/integrations/notion/databases", async (c) =>
+    runAction(c, "notion", (accessToken) => listNotionDatabases(accessToken)),
+  )
+
+  // GET /integrations/notion/pages?query= → { pages: [{ id, title }] }
+  .get("/integrations/notion/pages", async (c) => {
+    const query = c.req.query("query");
+    return runAction(c, "notion", (accessToken) =>
+      listNotionPages(accessToken, query),
+    );
+  })
+
+  // POST /integrations/notion/export { databaseId, title, summary,
+  //   actionItems, sessionId? } → { pageId, url }
+  .post("/integrations/notion/export", async (c) => {
+    const body = await readJson(c);
+    if (!body) return errorResponse(c, 400, "bad_request", "Invalid JSON body");
+    for (const field of ["databaseId", "title", "summary"] as const) {
+      if (typeof body[field] !== "string") {
+        return errorResponse(c, 400, "bad_request", `'${field}' must be a string`);
+      }
+    }
+    if (
+      !Array.isArray(body.actionItems) ||
+      body.actionItems.some((item) => typeof item !== "string")
+    ) {
+      return errorResponse(
+        c,
+        400,
+        "bad_request",
+        "'actionItems' must be an array of strings",
+      );
+    }
+    if (body.sessionId !== undefined && typeof body.sessionId !== "string") {
+      return errorResponse(c, 400, "bad_request", "'sessionId' must be a string");
+    }
+    return runAction(c, "notion", (accessToken) =>
+      exportNotionSummary(accessToken, {
+        databaseId: body.databaseId as string,
+        title: body.title as string,
+        summary: body.summary as string,
+        actionItems: body.actionItems as string[],
+        sessionId: body.sessionId as string | undefined,
+      }),
+    );
+  })
+
+  // POST /integrations/notion/import { pageIds } → { imported }. Flattened
+  // page text lands in memory through the internal document-ingest service
+  // (ingestMemoryDocument) — never via a self-HTTP call.
+  .post("/integrations/notion/import", async (c) => {
+    const body = await readJson(c);
+    if (!body) return errorResponse(c, 400, "bad_request", "Invalid JSON body");
+    if (
+      !Array.isArray(body.pageIds) ||
+      body.pageIds.some((id) => typeof id !== "string")
+    ) {
+      return errorResponse(
+        c,
+        400,
+        "bad_request",
+        "'pageIds' must be an array of strings",
+      );
+    }
+    return runAction(c, "notion", (accessToken) =>
+      importNotionPages(accessToken, body.pageIds as string[], (doc) =>
+        ingestMemoryDocument(c.env, c.var.userId, doc),
+      ),
+    );
   });
+
+/**
+ * Shared action wrapper: resolve the active connection (404 not_connected /
+ * 409 reconnect_required), decrypt the access token server-side, run the
+ * connector action, and map errors to the canonical schema
+ * (400 bad_request for input problems, 502 provider_error upstream).
+ * The plaintext token exists only inside this call — action results are
+ * browser-safe payloads.
+ */
+async function runAction<T>(
+  c: Context<App>,
+  provider: ProviderSlug,
+  action: (accessToken: string) => Promise<T>,
+): Promise<Response> {
+  const connOrRes = await requireActiveConnection(c, provider);
+  if (connOrRes instanceof Response) return connOrRes;
+  const connector = getConnector(provider);
+  if (!connector) {
+    return errorResponse(c, 501, "not_configured", `${provider} not registered`);
+  }
+  try {
+    const accessToken = await getAccessToken(c.env, connOrRes, connector);
+    return c.json(await action(accessToken));
+  } catch (err) {
+    if (err instanceof ValidationError) {
+      return errorResponse(c, 400, "bad_request", err.message);
+    }
+    if (err instanceof ReconnectRequiredError) {
+      return errorResponse(
+        c,
+        409,
+        "reconnect_required",
+        `${provider} connection needs to be re-authorized`,
+      );
+    }
+    if (err instanceof ProviderError) {
+      return errorResponse(c, 502, "provider_error", err.message);
+    }
+    throw err;
+  }
+}

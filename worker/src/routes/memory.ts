@@ -21,19 +21,15 @@ import {
   type MemorySearchRequest,
 } from "../memory/search";
 import { deleteMemoryFor, reindexMemory } from "../memory/ingest";
+import { ingestMemoryDocument } from "../services/memory-document";
+
+/** Canonical input for POST /api/memory/documents (shared with section 40).
+ *  Re-exported from the internal service for existing importers. */
+export type { MemoryDocumentInput } from "../services/memory-document";
 
 type App = { Bindings: Env; Variables: AuthVariables };
 
 const VALID_KINDS = new Set<string>(["transcript", "summary", "document"]);
-
-/** Canonical input for POST /api/memory/documents (shared with section 40). */
-export interface MemoryDocumentInput {
-  title: string;
-  source: string;
-  text: string;
-  external_id?: string;
-  metadata?: object;
-}
 
 async function readJson(
   c: { req: { json: () => Promise<unknown> } },
@@ -134,67 +130,14 @@ export const memoryRoutes = new Hono<App>()
     if (body.metadata !== undefined && (body.metadata === null || typeof body.metadata !== "object")) {
       return errorResponse(c, 400, "bad_request", "metadata must be an object");
     }
-    const metadataJson = body.metadata ? JSON.stringify(body.metadata) : null;
-    const now = Date.now();
-
-    let row: { id: string; revision: number } | null;
-    if (externalId !== null) {
-      // Idempotent upsert per (user_id, source, external_id).
-      row = await c.env.DB.prepare(
-        `INSERT INTO memory_documents
-           (id, user_id, title, source, external_id, text, metadata_json, revision, chunk_count, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)
-         ON CONFLICT (user_id, source, external_id) WHERE external_id IS NOT NULL
-         DO UPDATE SET
-           title = excluded.title,
-           text = excluded.text,
-           metadata_json = excluded.metadata_json,
-           revision = memory_documents.revision + 1,
-           updated_at = excluded.updated_at
-         RETURNING id, revision`,
-      )
-        .bind(
-          crypto.randomUUID(),
-          c.var.userId,
-          body.title as string,
-          body.source as string,
-          externalId,
-          body.text as string,
-          metadataJson,
-          now,
-          now,
-        )
-        .first<{ id: string; revision: number }>();
-    } else {
-      // One-off upload: always a new document.
-      row = await c.env.DB.prepare(
-        `INSERT INTO memory_documents
-           (id, user_id, title, source, external_id, text, metadata_json, revision, chunk_count, created_at, updated_at)
-         VALUES (?, ?, ?, ?, NULL, ?, ?, 1, 0, ?, ?)
-         RETURNING id, revision`,
-      )
-        .bind(
-          crypto.randomUUID(),
-          c.var.userId,
-          body.title as string,
-          body.source as string,
-          body.text as string,
-          metadataJson,
-          now,
-          now,
-        )
-        .first<{ id: string; revision: number }>();
-    }
-    if (!row) {
-      return errorResponse(c, 500, "internal_error", "Document upsert returned no row");
-    }
-
-    await c.env.INGEST_QUEUE.send({
-      userId: c.var.userId,
-      kind: "document",
-      parentId: row.id,
-      sourceRevision: row.revision,
-      jobs: ["index"],
+    // Upsert + enqueue live in the internal service (shared with section
+    // 40's Notion import — the plan's "internal document-ingest service").
+    const row = await ingestMemoryDocument(c.env, c.var.userId, {
+      title: body.title as string,
+      source: body.source as string,
+      text: body.text as string,
+      ...(externalId !== null ? { external_id: externalId } : {}),
+      ...(body.metadata ? { metadata: body.metadata as object } : {}),
     });
 
     return c.json({ id: row.id, status: "queued" }, 202);

@@ -142,19 +142,19 @@ describe("POST /api/integrations/:provider/connect", () => {
     });
   });
 
-  it("404s unknown providers and 501s unregistered ones", async () => {
+  it("404s unknown providers and 501s unconfigured ones", async () => {
     const unknown = await api("/api/integrations/dropbox/connect", {
       method: "POST",
       env: testEnv,
     });
     expect(unknown.status).toBe(404);
-    // gmail is a valid slug but not registered by this section (T4 adds it).
-    const unregistered = await api("/api/integrations/gmail/connect", {
+    // slack is registered but its OAuth secrets are absent in the test env.
+    const unconfigured = await api("/api/integrations/slack/connect", {
       method: "POST",
       env: testEnv,
     });
-    expect(unregistered.status).toBe(501);
-    const body = (await unregistered.json()) as { error: { code: string } };
+    expect(unconfigured.status).toBe(501);
+    const body = (await unconfigured.json()) as { error: { code: string } };
     expect(body.error.code).toBe("not_configured");
   });
 
