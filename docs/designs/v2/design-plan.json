@@ -1,0 +1,58 @@
+{
+  "title": "littlebird-voice v2 — AI meeting assistant shell & core screens",
+  "summary": "Expands littlebird-voice from a 3-tab voice-transcription PWA into a littlebird.ai-style AI meeting assistant, staying strictly inside the existing design system: #020617 slate-950 background with the radial top glow, #0f172a cards on #1e293b/#334155 borders, indigo #4f46e5 primary (hover #6366f1) with the indigo→violet brand-gradient logo, the green-dot Online pill, amber for offline/pending, red for stop/error, and the repo's lucide-style 2px stroke icons and status-pill conventions (pending-amber, transcribing-indigo-animated, done-green, error-red). The 3-tab bar becomes a persistent left sidebar with a deliberately minimal MVP nav: a gradient Capture button on top, Workspace → Sessions, Assistant → Ask AI (⌘K), and System → Integrations and Settings & Privacy, footed by an offline-first card so the PWA's offline story stays prominent. Capture gains a Meeting mode with three source cards — Mic only (tagged 'works offline'), Tab + Mic (recommended for browser calls, with a detected Google Meet tab row), Screen + Mic (with the OS/browser system-audio caveat) — and an in-progress state showing per-channel animated waveforms for a Google Meet tab + mic, a live timer, streaming diarized transcript and a red Stop & summarize action. The ⌘K palette overlays the dimmed shell with an Ask-AI input, semantic search hits scored with relevance bars (marked as needing a connection), session matches and quick actions. Session detail is a two-pane layout (per the repo's docs/designs convention): diarized transcript with speaker avatars and audio scrubber on the left; right pane tabbed between AI Summary (Overview, Action items with owners/due dates, Decisions, Key quotes, Risks) and Follow-ups with an editable AI-drafted email grounded in the session, sendable via Gmail. Sample content follows one coherent story: Ava Reyes closing the Acme Corp renewal. Each variation set reads left-to-right as a flow sequence, and the first variation in each section is recommended as the canonical state.",
+  "sections": [
+    {
+      "title": "App shell & Sessions",
+      "key": "shell-app-shell",
+      "description": "Persistent left sidebar replacing the 3-tab bar, with the Sessions list active: day groups, source tags, status pills.",
+      "variations": [
+        {
+          "title": "Sidebar shell with Sessions list",
+          "key": "sessions",
+          "html_link": "shell-sessions.html",
+          "is_recommended": true
+        }
+      ]
+    },
+    {
+      "title": "Capture — Meeting mode",
+      "key": "shell-capture-meeting",
+      "description": "Source picker (Mic only / Tab + Mic / Screen + Mic with system-audio caveat) followed by the capture-in-progress state.",
+      "variations": [
+        {
+          "title": "Source picker + capture in progress",
+          "key": "meeting",
+          "html_link": "capture-meeting.html",
+          "is_recommended": true
+        }
+      ]
+    },
+    {
+      "title": "⌘K Command palette (Ask AI)",
+      "key": "shell-command-palette",
+      "description": "⌘K overlay over the dimmed shell: context-aware Ask-AI input, scored semantic memory results, session matches, actions.",
+      "variations": [
+        {
+          "title": "Ask AI palette over dimmed shell",
+          "key": "palette",
+          "html_link": "command-palette.html",
+          "is_recommended": true
+        }
+      ]
+    },
+    {
+      "title": "Session detail",
+      "key": "shell-session-detail",
+      "description": "Two-column detail: diarized transcript beside a tabbed AI Summary pane, plus the Follow-ups tab with a drafted email.",
+      "variations": [
+        {
+          "title": "Transcript + AI Summary + Follow-ups",
+          "key": "detail",
+          "html_link": "session-detail.html",
+          "is_recommended": true
+        }
+      ]
+    }
+  ]
+}
