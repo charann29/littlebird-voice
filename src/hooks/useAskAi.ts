@@ -39,9 +39,21 @@ export function useAskAi(): UseAskAiResult {
   const [entries, setEntries] = useState<AskEntry[]>([]);
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const mountGenerationRef = useRef(0);
 
   useEffect(() => {
-    return () => abortRef.current?.abort();
+    const generation = ++mountGenerationRef.current;
+    return () => {
+      // React StrictMode replays mount effects as setup → cleanup → setup.
+      // Defer cancellation long enough for the replayed setup to advance the
+      // generation; otherwise an initial question submitted by AskAiPanel is
+      // aborted while the panel's once-only guard prevents a retry.
+      queueMicrotask(() => {
+        if (mountGenerationRef.current === generation) {
+          abortRef.current?.abort();
+        }
+      });
+    };
   }, []);
 
   const ask = useCallback(

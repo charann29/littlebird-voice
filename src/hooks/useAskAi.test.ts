@@ -81,6 +81,21 @@ describe("useAskAi", () => {
     expect(entry.errorCode).toBe("ai_unavailable");
   });
 
+  it("still aborts an active request after a real unmount", async () => {
+    let requestSignal: AbortSignal | null = null;
+    fetchMock.mockImplementation((_input, init) => {
+      requestSignal = init?.signal ?? null;
+      return new Promise<Response>(() => {});
+    });
+
+    const { result, unmount } = renderHook(() => useAskAi());
+    act(() => result.current.ask("q", "all"));
+    unmount();
+    await Promise.resolve();
+
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
   it("ignores blank questions", () => {
     const { result } = renderHook(() => useAskAi());
     act(() => result.current.ask("   ", "all"));
