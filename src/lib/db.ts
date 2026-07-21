@@ -156,15 +156,39 @@ async function clearQueuedUpserts(
   }
 }
 
+/**
+ * Abort an open transaction on a mid-transaction error so partial writes are
+ * rolled back (an uncaught JS error would otherwise let IndexedDB
+ * auto-commit whatever requests already succeeded).
+ */
+function abortQuietly(
+  tx: IDBPTransaction<
+    LittlebirdDB,
+    ("recordings" | "syncOutbox")[],
+    "readwrite"
+  >,
+): void {
+  try {
+    tx.abort();
+  } catch {
+    /* already aborted/finished */
+  }
+}
+
 /** Put a (new or full) recording + enqueue a coalesced upsert op atomically. */
 export async function putRecordingAndEnqueue(
   recording: Recording,
 ): Promise<void> {
   const db = await getDB();
   const tx = db.transaction([STORE, OUTBOX], "readwrite");
-  await tx.objectStore(STORE).put({ ...recording, syncState: "dirty" });
-  await clearQueuedUpserts(tx, recording.id);
-  await tx.objectStore(OUTBOX).put(makeOp(recording.id, "upsert"));
+  try {
+    await tx.objectStore(STORE).put({ ...recording, syncState: "dirty" });
+    await clearQueuedUpserts(tx, recording.id);
+    await tx.objectStore(OUTBOX).put(makeOp(recording.id, "upsert"));
+  } catch (err) {
+    abortQuietly(tx);
+    throw err;
+  }
   await tx.done;
 }
 
@@ -179,21 +203,27 @@ export async function updateRecordingAndEnqueue(
 ): Promise<Recording | undefined> {
   const db = await getDB();
   const tx = db.transaction([STORE, OUTBOX], "readwrite");
-  const store = tx.objectStore(STORE);
-  const existing = await store.get(id);
-  if (!existing) {
-    await tx.done;
-    return undefined;
+  let updated: Recording;
+  try {
+    const store = tx.objectStore(STORE);
+    const existing = await store.get(id);
+    if (!existing) {
+      await tx.done;
+      return undefined;
+    }
+    updated = {
+      ...existing,
+      ...patch,
+      id: existing.id,
+      syncState: "dirty",
+    };
+    await store.put(updated);
+    await clearQueuedUpserts(tx, id);
+    await tx.objectStore(OUTBOX).put(makeOp(id, "upsert"));
+  } catch (err) {
+    abortQuietly(tx);
+    throw err;
   }
-  const updated: Recording = {
-    ...existing,
-    ...patch,
-    id: existing.id,
-    syncState: "dirty",
-  };
-  await store.put(updated);
-  await clearQueuedUpserts(tx, id);
-  await tx.objectStore(OUTBOX).put(makeOp(id, "upsert"));
   await tx.done;
   return updated;
 }
@@ -206,11 +236,16 @@ export async function updateRecordingAndEnqueue(
 export async function deleteRecordingAndEnqueue(id: string): Promise<void> {
   const db = await getDB();
   const tx = db.transaction([STORE, OUTBOX], "readwrite");
-  await tx.objectStore(STORE).delete(id);
-  const outbox = tx.objectStore(OUTBOX);
-  const ops = await outbox.index("by-recordingId").getAll(id);
-  for (const op of ops) await outbox.delete(op.opId);
-  await outbox.put(makeOp(id, "delete"));
+  try {
+    await tx.objectStore(STORE).delete(id);
+    const outbox = tx.objectStore(OUTBOX);
+    const ops = await outbox.index("by-recordingId").getAll(id);
+    for (const op of ops) await outbox.delete(op.opId);
+    await outbox.put(makeOp(id, "delete"));
+  } catch (err) {
+    abortQuietly(tx);
+    throw err;
+  }
   await tx.done;
 }
 
