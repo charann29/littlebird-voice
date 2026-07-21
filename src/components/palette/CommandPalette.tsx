@@ -9,10 +9,9 @@
  * the palette falls back to local substring filtering over the merged
  * sessions list, and the Memory group is replaced by a connectivity note.
  *
- * INTEGRATION POINT (section 30-T5): replace `useMemorySearchAdapter` below
- * with the real hook:
- *   import { useMemorySearch } from "../../hooks/useMemorySearch";
- * The adapter already exposes the same contract
+ * INTEGRATION POINT (section 30-T5): swap the adapter in
+ * ./memorySearchAdapter.ts for the real hook
+ * (src/hooks/useMemorySearch) — same contract
  * ({ results, sessions, isLoading, disabled }).
  */
 import {
@@ -29,7 +28,6 @@ import {
   buildPaletteGroups,
   flattenPaletteGroups,
   movePaletteIndex,
-  type MemoryResultLike,
   type PaletteItem,
 } from "./paletteItems";
 import { useSessionsIndex } from "../../hooks/useSessionsIndex";
@@ -39,22 +37,7 @@ import type { SessionListItem } from "../../lib/mergeSessions";
 import { MicIcon, SparklesIcon } from "../icons";
 import { DatabaseIcon, SendIcon, UsersIcon } from "../shell/shellIcons";
 import { StatusPill } from "../sessions/StatusPill";
-
-interface MemorySearchState {
-  results: MemoryResultLike[];
-  sessions: { id: string; title: string; created_at: number }[];
-  isLoading: boolean;
-  /** True when semantic search is unavailable (offline / hook not landed). */
-  disabled: boolean;
-}
-
-/**
- * Local-only stand-in for section 30's useMemorySearch: semantic search
- * disabled, no network. Swap for the real hook at integration (see header).
- */
-function useMemorySearchAdapter(_query: string): MemorySearchState {
-  return { results: [], sessions: [], isLoading: false, disabled: true };
-}
+import { useMemorySearchAdapter } from "./memorySearchAdapter";
 
 function formatMs(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "";
