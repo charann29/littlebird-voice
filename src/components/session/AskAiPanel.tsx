@@ -84,7 +84,8 @@ export function AskAiPanel({
 
   // Keep the newest answer in view while streaming.
   useEffect(() => {
-    listEndRef.current?.scrollIntoView({ block: "nearest" });
+    // Guarded: jsdom doesn't implement scrollIntoView.
+    listEndRef.current?.scrollIntoView?.({ block: "nearest" });
   }, [entries]);
 
   const submit = () => {
