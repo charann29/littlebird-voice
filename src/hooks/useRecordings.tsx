@@ -26,14 +26,20 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { Recording, TranscribeStage } from "../types";
+import type {
+  Recording,
+  TranscribeStage,
+  TranscriptSegment,
+} from "../types";
 import {
-  addRecording,
-  deleteRecording,
+  deleteRecordingAndEnqueue,
   getAllRecordings,
   getRecording,
+  putRecordingAndEnqueue,
   updateRecording,
+  updateRecordingAndEnqueue,
 } from "../lib/db";
+import { drainOutbox, installSyncTriggers } from "../lib/sync";
 import {
   deleteRemote,
   resumePoll,
@@ -100,6 +106,23 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
     [applyLocal],
   );
 
+  /**
+   * Persist a patch that MUST sync to the server: atomic
+   * updateRecordingAndEnqueue (one transaction spanning recordings +
+   * syncOutbox), then kick a drain. Used for transcribe-done/edit; transient
+   * flips (status: "transcribing", soniox ids) keep plain persist().
+   */
+  const persistAndSync = useCallback(
+    async (id: string, patch: Partial<Recording>) => {
+      if (tombstonesRef.current.has(id)) return;
+      await updateRecordingAndEnqueue(id, patch);
+      if (tombstonesRef.current.has(id)) return;
+      applyLocal(id, { ...patch, syncState: "dirty" });
+      void drainOutbox();
+    },
+    [applyLocal],
+  );
+
   const setStage = useCallback(
     (id: string, stage: TranscribeStage | undefined) => {
       setStages((prev) => ({ ...prev, [id]: stage }));
@@ -141,9 +164,12 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
         error: null,
         sonioxFileId: null,
         sonioxTranscriptionId: null,
+        segments: null,
+        syncState: "local",
       };
-      await addRecording(recording);
-      setRecordings((prev) => [recording, ...prev]);
+      await putRecordingAndEnqueue(recording);
+      setRecordings((prev) => [{ ...recording, syncState: "dirty" }, ...prev]);
+      void drainOutbox();
       return recording;
     },
     [],
@@ -168,6 +194,7 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
           await persist(id, { status: "transcribing", error: null });
 
           let transcript: string;
+          let segments: TranscriptSegment[] | null;
           let fileId: string | null = current.sonioxFileId;
           let transcriptionId: string | null = current.sonioxTranscriptionId;
 
@@ -175,10 +202,12 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
             // RESUME an existing job rather than re-uploading (avoids leaking a
             // duplicate remote file/job on retry).
             setStage(id, "polling");
-            transcript = await resumePoll(
+            const fetched = await resumePoll(
               current.sonioxTranscriptionId,
               controller.signal,
             );
+            transcript = fetched.text;
+            segments = fetched.segments;
           } else {
             // Fresh transcription from the local blob.
             setStage(id, "uploading");
@@ -202,13 +231,17 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
               },
             });
             transcript = result.transcript;
+            segments = result.segments;
             fileId = result.fileId;
             transcriptionId = result.transcriptionId;
           }
 
-          await persist(id, {
+          // Durable, server-bound write: enqueue an upsert atomically with the
+          // recording update, then kick a sync pass.
+          await persistAndSync(id, {
             status: "done",
             transcript,
+            segments,
             error: null,
             sonioxFileId: fileId,
             sonioxTranscriptionId: transcriptionId,
@@ -254,7 +287,7 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
       runRef.current.set(id, run);
       return run;
     },
-    [beginActive, endActive, persist, setStage],
+    [beginActive, endActive, persist, persistAndSync, setStage],
   );
 
   /**
@@ -306,7 +339,10 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
       }
     }
     const existing = await getRecording(id);
-    await deleteRecording(id);
+    // Atomic: delete the row, drop queued ops for it, and enqueue a delete
+    // tombstone for the server — all in one transaction.
+    await deleteRecordingAndEnqueue(id);
+    void drainOutbox();
     setRecordings((prev) => prev.filter((r) => r.id !== id));
     setStages((prev) => {
       const next = { ...prev };
@@ -324,6 +360,11 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
 
+    // Durable-sync triggers (online + token changes) and an initial drain of
+    // any ops queued while the app was closed. Idempotent.
+    installSyncTriggers();
+    void drainOutbox();
+
     const recoverStranded = async (rec: Recording) => {
       if (cancelled || activeRef.current.has(rec.id)) return;
       if (rec.sonioxTranscriptionId) {
@@ -331,12 +372,17 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
         const controller = beginActive(rec.id);
         setStage(rec.id, "polling");
         try {
-          const transcript = await resumePoll(
+          const fetched = await resumePoll(
             rec.sonioxTranscriptionId,
             controller.signal,
           );
           if (cancelled) return;
-          await persist(rec.id, { status: "done", transcript, error: null });
+          await persistAndSync(rec.id, {
+            status: "done",
+            transcript: fetched.text,
+            segments: fetched.segments,
+            error: null,
+          });
           void deleteRemote(rec.sonioxFileId, rec.sonioxTranscriptionId);
         } catch (err) {
           if (cancelled) return;
@@ -397,7 +443,7 @@ export function RecordingsProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [beginActive, endActive, persist, setStage, drainPending]);
+  }, [beginActive, endActive, persist, persistAndSync, setStage, drainPending]);
 
   // Auto-transcribe pending items whenever connectivity transitions to online.
   useEffect(() => {

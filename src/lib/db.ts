@@ -60,7 +60,7 @@ export function getDB(): Promise<IDBPDatabase<LittlebirdDB>> {
           outbox.createIndex("by-recordingId", "recordingId");
           // Backfill new Recording fields on existing rows.
           const store = tx.objectStore(STORE);
-          void store.openCursor().then(function backfill(cursor) {
+          void store.openCursor().then(function backfill(cursor): Promise<void> | void {
             if (!cursor) return;
             const rec = cursor.value;
             let dirty = false;

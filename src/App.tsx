@@ -2,6 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { RecordingsProvider, useRecordings } from "./hooks/useRecordings";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { OnlineBadge } from "./components/OnlineBadge";
+import {
+  getApiToken,
+  onApiTokenChange,
+  setApiToken,
+} from "./lib/api";
 import { LiveTranscription } from "./components/LiveTranscription";
 import { Recorder } from "./components/Recorder";
 import { RecordingList } from "./components/RecordingList";
@@ -29,6 +34,81 @@ function BrandLogo() {
         <path d="M21 6c-1.6-.4-3.2 0-4.5 1C15 5.3 12.6 4.5 10 5 6 5.7 3 9 3 13c0 3 1.8 5.3 4 6l-1 3 3-1.2c.7.1 1.4.2 2 .2 4.4 0 8-3.1 8-7 0-1 0-1.9-.4-2.7L21 9V6ZM9 12a1.2 1.2 0 1 1 0-2.4A1.2 1.2 0 0 1 9 12Z" />
       </svg>
     </div>
+  );
+}
+
+/**
+ * Minimal token-entry affordance: a small key button in the header that
+ * toggles an inline input writing setApiToken (stored in localStorage;
+ * token set/change is a sync-drain trigger). Flagged for design pass.
+ */
+function TokenSettings() {
+  const [open, setOpen] = useState(false);
+  const [hasToken, setHasToken] = useState(() => Boolean(getApiToken()));
+  const [draft, setDraft] = useState("");
+
+  useEffect(
+    () => onApiTokenChange((token) => setHasToken(Boolean(token))),
+    [],
+  );
+
+  const save = () => {
+    const trimmed = draft.trim();
+    setApiToken(trimmed ? trimmed : null);
+    setDraft("");
+    setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => {
+          setDraft(getApiToken() ?? "");
+          setOpen(true);
+        }}
+        title={hasToken ? "API token set — click to change" : "Set API token"}
+        aria-label="API token settings"
+        className={[
+          "inline-flex items-center gap-1 rounded-full border px-2.5 py-1.5 text-xs font-semibold",
+          hasToken
+            ? "border-slate-700 bg-slate-800/60 text-slate-400 hover:text-slate-200"
+            : "border-amber-500/30 bg-amber-500/10 text-amber-400 hover:text-amber-300",
+        ].join(" ")}
+      >
+        {hasToken ? "Token" : "Set token"}
+      </button>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <input
+        type="password"
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") save();
+          if (e.key === "Escape") setOpen(false);
+        }}
+        placeholder="API token"
+        aria-label="API token"
+        className="w-36 rounded-xl border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-200 outline-none focus:border-indigo-500"
+      />
+      <button
+        onClick={save}
+        className="rounded-xl bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500"
+      >
+        Save
+      </button>
+      <button
+        onClick={() => setOpen(false)}
+        className="rounded-xl px-2 py-1.5 text-xs font-semibold text-slate-400 hover:text-slate-200"
+        aria-label="Cancel"
+      >
+        ✕
+      </button>
+    </span>
   );
 }
 
@@ -196,7 +276,10 @@ function Shell() {
             <p className="text-[11px] text-slate-500">Voice notes, even offline</p>
           </div>
         </div>
-        <OnlineBadge />
+        <div className="flex items-center gap-1.5">
+          <TokenSettings />
+          <OnlineBadge />
+        </div>
       </header>
 
       <UpdateBanner />
