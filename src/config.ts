@@ -1,17 +1,14 @@
 /**
  * Central configuration for Soniox integration and app-wide constants.
  *
- * Security note: VITE_SONIOX_API_KEY is inlined into the client bundle at build
- * time (Vite inlines all VITE_* vars). This matches the reference MVP. For a
- * public deployment, replace API_BASE + authHeaders in lib/soniox-async.ts with
- * a serverless proxy that holds the key server-side. This module is the single
- * seam where that swap happens.
+ * The Soniox API key never ships in the client bundle: async transcription is
+ * relayed through the Worker's allow-listed /api/stt/* routes (which inject
+ * the key server-side), and live transcription mints a short-lived temporary
+ * key via POST /api/auth/soniox-token.
  */
 
-export const SONIOX_API_KEY = import.meta.env.VITE_SONIOX_API_KEY as string;
-
-/** Base URL for Soniox REST API (async transcription). */
-export const API_BASE = "https://api.soniox.com";
+/** Base path for the Worker's Soniox async relay (same-origin). */
+export const API_BASE = "/api/stt";
 
 /** Realtime streaming model (online live transcription). */
 export const RT_MODEL = "stt-rt-v5";

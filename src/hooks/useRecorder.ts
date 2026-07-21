@@ -27,6 +27,15 @@ export interface UseRecorderOptions {
    * error — so audio is never silently dropped. The caller persists here.
    */
   onComplete?: (audio: CapturedAudio) => void | Promise<void>;
+  /**
+   * Optional injected-stream provider (Meeting capture's mixed stream).
+   * Ownership rule: whoever creates a MediaStream stops it — when a stream is
+   * injected the hook does NOT own it and never calls track.stop() on it;
+   * the provider (e.g. CaptureMixer) is responsible for stopping tracks.
+   * When absent, the hook getUserMedia's its own stream (owned) — the default
+   * path is byte-identical to v1.
+   */
+  getStream?: () => Promise<MediaStream>;
 }
 
 export interface UseRecorder {
@@ -68,6 +77,11 @@ export function useRecorder(
   // Keep the latest onComplete in a ref so finalizeStop's identity is stable.
   const onCompleteRef = useRef(options.onComplete);
   onCompleteRef.current = options.onComplete;
+  const getStreamRef = useRef(options.getStream);
+  getStreamRef.current = options.getStream;
+  // True only when the stream came from our own getUserMedia (default path);
+  // injected streams are never stopped by this hook.
+  const ownsStreamRef = useRef(false);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -94,8 +108,13 @@ export function useRecorder(
     wavizRef.current?.stop();
     wavizRef.current = null;
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
+      // Stop tracks only for streams this hook created itself; injected
+      // streams belong to their creator (ownership rule) — just detach.
+      if (ownsStreamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+      }
       streamRef.current = null;
+      ownsStreamRef.current = false;
     }
   }, []);
 
@@ -145,7 +164,11 @@ export function useRecorder(
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const injectedGetStream = getStreamRef.current;
+      const stream = injectedGetStream
+        ? await injectedGetStream()
+        : await navigator.mediaDevices.getUserMedia({ audio: true });
+      ownsStreamRef.current = !injectedGetStream;
       streamRef.current = stream;
 
       const chosen = negotiateMimeType();

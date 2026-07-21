@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { SONIOX_API_KEY, RT_MODEL, LANGUAGE_HINTS } from "../config";
+import { RT_MODEL, LANGUAGE_HINTS } from "../config";
+import { apiFetch, getApiToken } from "../lib/api";
+import type { SonioxTokenResponse } from "../lib/api-types";
 import { WaveformViz, type WaveColor } from "../lib/waveform";
 
 /**
@@ -42,6 +44,18 @@ interface SonioxClientLike {
   cancel?: () => void;
 }
 
+export interface UseSonioxOptions {
+  /**
+   * Optional injected-stream provider (Meeting capture's mixed stream).
+   * Ownership rule: whoever creates a MediaStream stops it — when a stream is
+   * injected the hook does NOT own it and never calls track.stop() on it
+   * (it still disconnects the waveform viz); the provider (e.g. CaptureMixer)
+   * stops the tracks. When absent, the hook getUserMedia's its own stream
+   * (owned) — default behavior is byte-identical to v1.
+   */
+  getStream?: () => Promise<MediaStream>;
+}
+
 export interface UseSoniox {
   recordState: RecordState;
   isRecording: boolean;
@@ -55,6 +69,7 @@ export interface UseSoniox {
 export function useSoniox(
   onText: (text: string) => void,
   canvasRef: RefObject<HTMLCanvasElement | null>,
+  options?: UseSonioxOptions,
 ): UseSoniox {
   const [recordState, setRecordState] = useState<RecordState>("idle");
   const [interimText, setInterimText] = useState("");
@@ -62,6 +77,11 @@ export function useSoniox(
 
   const clientRef = useRef<SonioxClientLike | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // True only for the default getUserMedia path; injected streams are owned
+  // by their creator (ownership rule) and are never stopped here.
+  const ownsStreamRef = useRef(false);
+  const getStreamRef = useRef(options?.getStream);
+  getStreamRef.current = options?.getStream;
   const vizRef = useRef<WaveformViz | null>(null);
   // Synchronous session id: bumped on every start/cancel/unmount so in-flight
   // async startup and scoped SDK callbacks can detect a stale session.
@@ -84,8 +104,13 @@ export function useSoniox(
   function teardownAudio() {
     vizRef.current?.stop();
     vizRef.current = null;
-    streamRef.current?.getTracks().forEach((t) => t.stop());
+    // Stop tracks only when this hook created the stream itself; injected
+    // streams are stopped by their creator (e.g. CaptureMixer).
+    if (ownsStreamRef.current) {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    }
     streamRef.current = null;
+    ownsStreamRef.current = false;
   }
 
   /** True while the given session is still the active one and we're mounted. */
@@ -131,9 +156,21 @@ export function useSoniox(
     setMicError("");
     setInterimText("");
 
-    // Feature-detect microphone access before doing anything else.
-    if (!navigator.mediaDevices?.getUserMedia) {
+    const injectedGetStream = getStreamRef.current;
+
+    // Feature-detect microphone access before doing anything else (skipped
+    // when the caller injects a ready-made stream).
+    if (!injectedGetStream && !navigator.mediaDevices?.getUserMedia) {
       setMicError("Microphone not supported in this browser.");
+      return;
+    }
+
+    // Graceful no-token UX: live transcription needs the backend token to
+    // mint a realtime key. Recording (Recorder tab) still works without it.
+    if (!getApiToken()) {
+      setMicError(
+        "Transcription is not configured — paste your API token in Settings to connect to the server.",
+      );
       return;
     }
 
@@ -141,8 +178,11 @@ export function useSoniox(
     setRecordState("connecting");
 
     let stream: MediaStream;
+    const ownsStream = !injectedGetStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = injectedGetStream
+        ? await injectedGetStream()
+        : await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
       if (isCurrent(gen)) {
         setMicError("Microphone access denied — check browser permissions.");
@@ -151,13 +191,14 @@ export function useSoniox(
       return;
     }
 
-    // Session changed (tab switch / rapid restart) while getUserMedia was
-    // pending: release this orphan stream and bail — do not start anything.
+    // Session changed (tab switch / rapid restart) while acquisition was
+    // pending: release this orphan stream (if owned) and bail.
     if (!isCurrent(gen)) {
-      stream.getTracks().forEach((t) => t.stop());
+      if (ownsStream) stream.getTracks().forEach((t) => t.stop());
       return;
     }
     streamRef.current = stream;
+    ownsStreamRef.current = ownsStream;
 
     // Waveform shares the same stream. Color: yellow while connecting, green
     // once listening — read live from recordStateRef.
@@ -183,7 +224,16 @@ export function useSoniox(
       }
 
       const client = new SonioxClient({
-        apiKey: SONIOX_API_KEY,
+        // SDK ≥1.4 accepts an async apiKey getter; audio buffers until it
+        // resolves. The Worker mints a short-lived single-use realtime key,
+        // so the permanent Soniox key never reaches the browser.
+        apiKey: async () => {
+          const { api_key } = await apiFetch<SonioxTokenResponse>(
+            "/auth/soniox-token",
+            { method: "POST" },
+          );
+          return api_key;
+        },
         onStarted: () => {
           if (!isCurrent(gen)) return;
           setRecordState("listening");

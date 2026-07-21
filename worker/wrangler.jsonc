@@ -1,0 +1,84 @@
+// Canonical Worker config (JSONC — NOT wrangler.toml). All bindings (D1,
+// Queues, future Vectorize/R2/etc.) are declared here.
+//
+// Local dev: `wrangler dev` runs D1 + Queues via local simulators — no
+// Cloudflare account needed. Secrets come from `.dev.vars` (gitignored).
+//
+// Deploy (when hosting is decided): fill `database_id` after
+// `wrangler d1 create littlebird-voice`, create the queues, set secrets —
+// see worker/README.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "littlebird-voice",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "littlebird-voice",
+      // Placeholder — replace with the real id from `wrangler d1 create`
+      // before a remote deploy. Local dev ignores it.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "INGEST_QUEUE",
+        "queue": "littlebird-ingest"
+      }
+    ],
+    // Consumer config is provisioned here, but the single dispatcher
+    // (worker/src/queue/consumer.ts registering the `queue()` handler) is
+    // owned by section 30 (its T3). Until then src/index.ts exports a
+    // temporary no-op queue handler so `wrangler dev` starts cleanly.
+    "consumers": [
+      {
+        "queue": "littlebird-ingest",
+        "max_retries": 3,
+        "retry_delay": 30,
+        "dead_letter_queue": "littlebird-ingest-dlq"
+      }
+    ]
+  },
+  // Workers AI (embeddings @cf/baai/bge-m3). No local simulator — local dev
+  // sets DEV_FAKE_AI=1 in .dev.vars and never touches this binding.
+  // -------------------------------------------------------------------------
+  // Workers AI + Vectorize bindings (section 30 — memory & semantic search).
+  //
+  // COMMENTED OUT because neither has a local simulator and declaring them
+  // makes `wrangler dev` / vitest-pool-workers demand Cloudflare credentials
+  // (they proxy to the real service even in dev). This project is local-dev
+  // only for now (docs/plans/v2/decisions.md #1); local dev/tests set
+  // DEV_FAKE_AI=1 + DEV_LOCAL_VECTOR=1 in .dev.vars and use the deterministic
+  // hash embedder (src/memory/provider.ts) + the D1-backed dev vector index
+  // (src/memory/index-store.ts) instead.
+  //
+  // BEFORE A REAL DEPLOY: uncomment both blocks, remove the DEV_* vars, and
+  // provision the index:
+  //   npx wrangler vectorize create littlebird-memory --dimensions=1024 --metric=cosine
+  //   npx wrangler vectorize create-metadata-index littlebird-memory --property-name=kind --type=string
+  //   npx wrangler vectorize create-metadata-index littlebird-memory --property-name=session_id --type=string
+  //   npx wrangler vectorize create-metadata-index littlebird-memory --property-name=created_at --type=number
+  // (metadata indexes MUST exist before the first vector insert).
+  //
+  // "ai": { "binding": "AI" },
+  // "vectorize": [
+  //   { "binding": "VECTORIZE", "index_name": "littlebird-memory" }
+  // ],
+  // -------------------------------------------------------------------------
+  // Section 20 (AI features): LLM model id — read by src/ai/provider.ts,
+  // never hardcoded at call sites. The same commented-out "ai" binding above
+  // is what section 20's WorkersAiProvider uses when deployed; local dev
+  // (DEV_FAKE_AI=1) uses the deterministic stub provider instead.
+  "vars": {
+    "AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+  },
+  "assets": {
+    "directory": "../dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  }
+}
