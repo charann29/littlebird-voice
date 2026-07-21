@@ -12,6 +12,7 @@ import type { SessionMeta } from "../lib/api-types";
 function rec(id: string, over: Partial<Recording> = {}): Recording {
   return {
     id,
+    title: null,
     createdAt: 1_700_000_000_000,
     durationMs: 60_000,
     mimeType: "audio/webm",

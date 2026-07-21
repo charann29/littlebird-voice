@@ -16,6 +16,7 @@ import {
 function recording(over: Partial<Recording> = {}): Recording {
   return {
     id: "r1",
+    title: null,
     createdAt: Date.now(),
     durationMs: 60_000,
     mimeType: "audio/webm",

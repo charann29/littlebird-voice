@@ -12,6 +12,7 @@ import type { SessionListItem } from "../../lib/mergeSessions";
 function rec(id: string, over: Partial<Recording> = {}): Recording {
   return {
     id,
+    title: null,
     createdAt: Date.now(),
     durationMs: 60_000,
     mimeType: "audio/webm",
