@@ -9,6 +9,7 @@
  */
 import { NavLink, useNavigate } from "react-router";
 import { useRecordings } from "../../hooks/useRecordings";
+import { useSessionsIndex } from "../../hooks/useSessionsIndex";
 import { BrandLogo } from "./BrandLogo";
 import { MicIcon } from "../icons";
 import {
@@ -67,8 +68,12 @@ function GroupHeader({ children }: { children: ReactNode }) {
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const navigate = useNavigate();
   const { recordings } = useRecordings();
-  const total = recordings.length;
-  const pendingCount = recordings.filter((r) => r.status === "pending").length;
+  // Counts reflect the MERGED local + server list (unique ids), not just the
+  // locally cached recordings; the footer's "cached on this device" copy
+  // keeps using the local count since that is what it describes.
+  const { items, pendingCount } = useSessionsIndex();
+  const total = items.length;
+  const cachedCount = recordings.length;
 
   return (
     <div className="flex h-full flex-col px-3.5 pb-4 pt-5">
@@ -164,9 +169,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             Offline-first
           </div>
           <div className="mt-1 text-[11px] leading-relaxed text-slate-500">
-            {total === 0
+            {cachedCount === 0
               ? "Capture works without a connection."
-              : `${total} session${total === 1 ? "" : "s"} cached on this device. Capture works without a connection.`}
+              : `${cachedCount} session${cachedCount === 1 ? "" : "s"} cached on this device. Capture works without a connection.`}
           </div>
         </div>
       </div>

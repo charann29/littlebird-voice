@@ -84,8 +84,10 @@ export function SessionList() {
         </div>
       )}
 
-      {/* Filters + count header. */}
-      <div className="mb-4 flex items-center gap-2">
+      {/* Filters + count header. flex-wrap lets the count/actions cluster
+          drop to its own line on narrow viewports (e.g. 390px) instead of
+          forcing horizontal overflow. */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         {FILTERS.map((f) => (
           <button
             key={f.id}
@@ -93,7 +95,7 @@ export function SessionList() {
             onClick={() => setFilter(f.id)}
             aria-pressed={filter === f.id}
             className={[
-              "rounded-full border px-3 py-1.5 text-[12.5px] font-semibold",
+              "whitespace-nowrap rounded-full border px-3 py-1.5 text-[12.5px] font-semibold",
               filter === f.id
                 ? "border-indigo-500/55 bg-indigo-500/15 text-indigo-200"
                 : "border-[#334155] bg-[#0f172a] text-slate-400 hover:text-slate-300",
@@ -102,8 +104,8 @@ export function SessionList() {
             {f.label}
           </button>
         ))}
-        <div className="ml-auto flex items-center gap-2 text-xs font-semibold text-slate-500">
-          <span>
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2 text-xs font-semibold text-slate-500">
+          <span className="whitespace-nowrap">
             {items.length} session{items.length === 1 ? "" : "s"}
             {pendingCount > 0 ? ` · ${pendingCount} pending` : ""}
           </span>
@@ -112,7 +114,7 @@ export function SessionList() {
               type="button"
               onClick={() => void transcribeAllPending()}
               disabled={pendingCount === 0}
-              className="inline-flex items-center gap-1.5 rounded-[10px] border border-indigo-500/40 bg-indigo-500/15 px-2.5 py-1.5 text-xs font-bold text-indigo-200 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-[10px] border border-indigo-500/40 bg-indigo-500/15 px-2.5 py-1.5 text-xs font-bold text-indigo-200 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <RefreshIcon width={13} height={13} />
               Transcribe pending
