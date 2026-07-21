@@ -60,6 +60,8 @@ function setOnline(value: boolean) {
 }
 
 beforeEach(() => {
+  // jsdom lacks scrollIntoView (used by AI panes/palette to keep rows visible).
+  Element.prototype.scrollIntoView = vi.fn();
   setOnline(true);
   window.localStorage.clear();
 });

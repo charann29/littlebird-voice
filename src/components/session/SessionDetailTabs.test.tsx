@@ -4,10 +4,15 @@
  */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionDetailTabs } from "./SessionDetailTabs";
 
 describe("SessionDetailTabs", () => {
+  beforeEach(() => {
+    // jsdom lacks scrollIntoView (AskAiPanel keeps the newest answer in view).
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
   it("renders the three tabs with correct aria wiring", () => {
     render(<SessionDetailTabs sessionId="s1" />);
     const tablist = screen.getByRole("tablist", { name: "AI features" });
