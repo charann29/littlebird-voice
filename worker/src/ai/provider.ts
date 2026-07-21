@@ -255,6 +255,12 @@ export class DevFakeProvider implements LlmProvider {
 
 /* ---------------------------------------------------------------- factory */
 
+/** Test seam: lets vitest inject a scripted provider through getProvider. */
+let testProviderOverride: LlmProvider | null = null;
+export function setTestProvider(provider: LlmProvider | null): void {
+  testProviderOverride = provider;
+}
+
 /**
  * Factory: reads env — `DEV_FAKE_AI=1` forces the deterministic stub;
  * otherwise `AI_PROVIDER` ("workers-ai" default) + `AI_MODEL` select the
@@ -262,6 +268,7 @@ export class DevFakeProvider implements LlmProvider {
  * login) also falls back to the stub when DEV_FAKE_AI is set.
  */
 export function getProvider(env: Env): LlmProvider {
+  if (testProviderOverride) return testProviderOverride;
   if (env.DEV_FAKE_AI === "1") return new DevFakeProvider();
   const model = env.AI_MODEL || DEFAULT_MODEL;
   if (!env.AI) {

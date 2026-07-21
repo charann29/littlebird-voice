@@ -10,8 +10,11 @@ import { Hono } from "hono";
 import type { Env } from "./env";
 import { authMiddleware, type AuthVariables } from "./auth";
 import { errorBody } from "./errors";
+import { aiRoutes } from "./routes/ai";
+import { memoryRoutes } from "./routes/memory";
 import { sessionsRoutes } from "./routes/sessions";
 import { sonioxRoutes } from "./routes/soniox";
+import { queueHandler } from "./queue/consumer";
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -26,6 +29,8 @@ app.get("/api/auth/check", (c) => c.body(null, 204));
 
 app.route("/api", sessionsRoutes);
 app.route("/api", sonioxRoutes);
+app.route("/api", aiRoutes);
+app.route("/api", memoryRoutes);
 
 // Canonical error schema for anything a route didn't handle.
 app.notFound((c) => {
@@ -47,17 +52,8 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch,
 
-  // TODO(section-30): replace this no-op with the real dispatcher in
-  // worker/src/queue/consumer.ts (single queue() handler fanning out by
-  // kind/jobs). It exists only so `wrangler dev` runs the declared consumer
-  // config without crashing; messages are retried per wrangler.jsonc
-  // (max_retries 3 → littlebird-ingest-dlq).
-  async queue(batch: MessageBatch<unknown>): Promise<void> {
-    for (const message of batch.messages) {
-      console.log(
-        `[queue] ingest message received (no-op until section 30): ${JSON.stringify(message.body)}`,
-      );
-      message.ack();
-    }
-  },
+  // THE single queue dispatcher (section 30): routes IngestMessages to
+  // memory ingestion and to section 20's auto-summary handler; failed
+  // messages retry per wrangler.jsonc (max_retries 3 → littlebird-ingest-dlq).
+  queue: queueHandler,
 } satisfies ExportedHandler<Env>;
