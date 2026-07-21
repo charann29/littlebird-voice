@@ -74,3 +74,56 @@ export interface SonioxTranscript {
     speaker?: string;
   }>;
 }
+
+/* ------------------------------------------------------------------ */
+/* Memory & semantic search (section 30) — mirrors worker/src/memory/  */
+/* search.ts response types for POST /api/memory/search.               */
+/* ------------------------------------------------------------------ */
+
+export type MemoryKind = "transcript" | "summary" | "document";
+
+export interface MemorySearchFilters {
+  kind?: MemoryKind[];
+  session_id?: string;
+  /** ISO date (or datetime) lower bound on the parent's created_at. */
+  date_from?: string;
+  /** ISO date (or datetime) upper bound on the parent's created_at. */
+  date_to?: string;
+}
+
+export interface MemorySearchResult {
+  /** Chunk id (== vector id). */
+  id: string;
+  /** Raw fused RRF score — ranking only, never render. */
+  score: number;
+  /** ∈ [0,1], normalized to this response's top result (top = 1.0). */
+  display_score: number;
+  /** Raw cosine similarity, present when the vector query hit this chunk. */
+  vector_score?: number;
+  source: "vector" | "keyword";
+  text: string;
+  kind: MemoryKind;
+  session_id?: string;
+  session_title?: string;
+  document_id?: string;
+  document_title?: string;
+  /** Document URL from metadata ({url}). */
+  url?: string;
+  speaker?: string | null;
+  start_ms?: number | null;
+  end_ms?: number | null;
+  /** Parent (session/document) created_at, epoch ms. */
+  created_at: number;
+}
+
+/** Plain keyword match on a session title. */
+export interface MemorySessionMatch {
+  id: string;
+  title: string;
+  created_at: number;
+}
+
+export interface MemorySearchResponse {
+  results: MemorySearchResult[];
+  sessions: MemorySessionMatch[];
+}
