@@ -1,0 +1,102 @@
+{
+  "title": "Warble — Offline-First Voice Transcription (Web App + PWA)",
+  "summary": "A dark, minimal voice-transcription app that keeps the big circular mic and chat-style transcript feel of the reference speech-react codebase (slate-950 canvas, indigo-600 primary, green-500 listening, yellow connecting, red stop) and elevates it into a full product with an offline-first identity. The defining differentiator from littlebird.ai is that recording is never blocked: even with no connection the indigo mic stays prominent and enabled, audio is stored locally, and it transcribes automatically when the network returns. The plan is mobile-first (the PWA installs on phones) with a desktop two-pane layout to show responsiveness. Recorder states are laid out as a left-to-right progression per section (online idle → online listening, and offline idle → offline recording) so reviewers read them as a flow. Status is signalled consistently: green Online / amber Offline badges, and status pills Pending (amber) / Transcribing (indigo, animated) / Done (green) / Error (red). The Recordings section pairs the online view — including the 'You're back online — N recordings ready to transcribe' CTA banner and a Transcribe-all action — against the offline view where Transcribe is disabled with a 'Connect to transcribe' hint while playback and copy/delete stay live. Recommended variations are the states that best represent the product's core promise (offline idle for the recorder, and the online back-online view for history), since the offline-first behaviour is the whole point. Sample transcripts are real, believable English/Hindi/Telugu content. All icons are inline SVG (mic, stop, wifi/wifi-off, play, copy, trash, download/install) in the reference's lucide-style stroke set. Dark-only, matching the reference product; no light theme.",
+  "sections": [
+    {
+      "title": "Recorder — Online",
+      "key": "recorder-online",
+      "description": "The main recorder connected to the network: idle prompt then live listening with waveform and streaming transcript.",
+      "variations": [
+        {
+          "title": "Online — Idle",
+          "key": "idle",
+          "html_link": "recorder-online-idle.html",
+          "is_recommended": true
+        },
+        {
+          "title": "Online — Live Listening",
+          "key": "listening",
+          "html_link": "recorder-online-listening.html",
+          "is_recommended": false
+        }
+      ]
+    },
+    {
+      "title": "Recorder — Offline (differentiator)",
+      "key": "recorder-offline",
+      "description": "Same recorder with no connection: the mic stays enabled and prominent, audio saves locally and transcribes when back online.",
+      "variations": [
+        {
+          "title": "Offline — Idle (mic still enabled)",
+          "key": "idle",
+          "html_link": "recorder-offline-idle.html",
+          "is_recommended": true
+        },
+        {
+          "title": "Offline — Recording in progress",
+          "key": "recording",
+          "html_link": "recorder-offline-recording.html",
+          "is_recommended": false
+        }
+      ]
+    },
+    {
+      "title": "Recordings / History",
+      "key": "recordings",
+      "description": "The saved-recordings list with status pills, playback, transcript previews, plus the online back-online CTA vs the offline disabled-transcribe state.",
+      "variations": [
+        {
+          "title": "Online — back-online banner + Transcribe all",
+          "key": "online",
+          "html_link": "recordings-online.html",
+          "is_recommended": true
+        },
+        {
+          "title": "Offline — Transcribe disabled with hint",
+          "key": "offline",
+          "html_link": "recordings-offline.html",
+          "is_recommended": false
+        }
+      ]
+    },
+    {
+      "title": "Recording Detail",
+      "key": "recording-detail",
+      "description": "A single recording expanded: audio player with scrubber, full transcript, and copy / re-transcribe / download / delete.",
+      "variations": [
+        {
+          "title": "Expanded detail",
+          "key": "expanded",
+          "html_link": "recording-detail.html",
+          "is_recommended": true
+        }
+      ]
+    },
+    {
+      "title": "PWA Install",
+      "key": "pwa-install",
+      "description": "The install affordance: an inline install banner over the recorder and a full 'Add to Home Screen' prompt sheet noting offline support.",
+      "variations": [
+        {
+          "title": "Install banner + prompt sheet",
+          "key": "banner-sheet",
+          "html_link": "pwa-install.html",
+          "is_recommended": true
+        }
+      ]
+    },
+    {
+      "title": "Desktop Layout",
+      "key": "desktop",
+      "description": "Responsive desktop two-pane workspace: sidebar recordings list with an install affordance and a large centered recorder.",
+      "variations": [
+        {
+          "title": "Two-pane workspace",
+          "key": "two-pane",
+          "html_link": "recorder-desktop.html",
+          "is_recommended": true
+        }
+      ]
+    }
+  ]
+}

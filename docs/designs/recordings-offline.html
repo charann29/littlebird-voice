@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Warble — Recordings (Offline)</title>
+<meta name="description" content="Recordings history list while offline: Offline badge, disabled Transcribe buttons with a 'connect to transcribe' hint, disabled Transcribe-all action, playback still works, transcript previews for already-done items." />
+<!-- DESIGN SYSTEM: same tokens. Offline = Transcribe actions disabled with hint; playback + copy/delete still enabled. -->
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{--bg:#020617;--card:#0f172a;--card2:#111a2e;--border:#1e293b;--border2:#334155;
+    --indigo:#4f46e5;--indigo-hi:#6366f1;--green:#22c55e;--green-d:#4ade80;--yellow:#eab308;--red:#ef4444;
+    --amber:#f59e0b;--amber-d:#fbbf24;--white:#f8fafc;--t300:#cbd5e1;--t400:#94a3b8;--t500:#64748b;--t600:#475569}
+  html,body{height:100%}
+  body{background:radial-gradient(120% 80% at 50% -10%,#0b1220 0%,var(--bg) 60%);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif;color:var(--white);display:flex;align-items:center;justify-content:center;min-height:100vh;padding:32px 16px;-webkit-font-smoothing:antialiased}
+  .phone{width:100%;max-width:400px;min-height:800px;background:var(--bg);border:1px solid var(--border);border-radius:32px;overflow:hidden;box-shadow:0 40px 80px -20px rgba(0,0,0,.7);display:flex;flex-direction:column}
+  .statusbar{display:flex;justify-content:space-between;align-items:center;padding:14px 22px 6px;font-size:12px;color:var(--t400);font-weight:600}
+  .statusbar .dots{display:flex;gap:4px;align-items:center}.statusbar .dots span{width:4px;height:4px;border-radius:50%;background:var(--t500)}
+  header{display:flex;align-items:center;justify-content:space-between;padding:10px 20px 8px}
+  .htitle{display:flex;align-items:center;gap:11px}
+  .backbtn{width:36px;height:36px;border-radius:11px;border:1px solid var(--border);background:var(--card);color:var(--t400);display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .htitle h1{font-size:19px;font-weight:700;letter-spacing:-.02em}
+  .badge{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:600;border:1px solid}
+  .badge.offline{color:var(--amber-d);background:rgba(245,158,11,.10);border-color:rgba(245,158,11,.32)}
+  .badge.offline .dot{width:6px;height:6px;border-radius:50%;background:var(--amber)}
+
+  .scroll{flex:1;overflow-y:auto;padding:6px 16px 24px}
+  .offbar{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.24);border-radius:14px;padding:11px 13px;display:flex;align-items:center;gap:10px;margin:10px 0 16px;font-size:12.5px;color:#fcd9a4;line-height:1.4}
+  .offbar .ic{color:var(--amber-d);flex-shrink:0}
+
+  .listhdr{display:flex;align-items:center;justify-content:space-between;padding:2px 4px 12px}
+  .listhdr .n{font-size:12px;color:var(--t500);font-weight:600}
+  .transcribe-all.disabled{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--t600);background:var(--card);border:1px solid var(--border);border-radius:10px;padding:7px 11px;cursor:not-allowed}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:14px 15px;margin-bottom:12px}
+  .card .top{display:flex;align-items:flex-start;gap:11px}
+  .card .top .meta{flex:1;min-width:0}.card .top .meta .ttl{font-size:15px;font-weight:600}.card .top .meta .sub{font-size:12px;color:var(--t500);margin-top:2px}
+  .pill{font-size:11px;font-weight:700;padding:4px 9px;border-radius:999px;border:1px solid;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+  .pill.pending{background:rgba(245,158,11,.14);color:var(--amber-d);border-color:rgba(245,158,11,.32)}
+  .pill.done{background:rgba(34,197,94,.14);color:var(--green-d);border-color:rgba(34,197,94,.32)}
+  .pill .d{width:6px;height:6px;border-radius:50%;background:currentColor}
+
+  .player{display:flex;align-items:center;gap:10px;margin-top:12px}
+  .playbtn{width:34px;height:34px;border-radius:50%;background:rgba(79,70,229,.16);border:1px solid rgba(79,70,229,.4);color:#c7d2fe;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
+  .track{flex:1;height:5px;border-radius:3px;background:var(--card2);position:relative;overflow:hidden}
+  .track .fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,var(--indigo),var(--indigo-hi));border-radius:3px}
+  .time{font-size:11px;color:var(--t500);font-variant-numeric:tabular-nums;flex-shrink:0}
+  .preview{margin-top:12px;font-size:13px;line-height:1.55;color:var(--t300);background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:11px 12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .preview.muted{color:var(--t600);font-style:italic}
+
+  .actions{display:flex;align-items:center;gap:8px;margin-top:12px}
+  .act{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:7px 11px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--t400);cursor:pointer}
+  .act:hover{border-color:var(--border2);color:var(--t300)}
+  .act.spacer{margin-left:auto}
+  .act.danger:hover{color:#fca5a5;border-color:rgba(239,68,68,.4)}
+  /* disabled transcribe when offline */
+  .act.transcribe-off{background:var(--card2);border:1px dashed var(--border2);color:var(--t600);cursor:not-allowed}
+  .offhint{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--amber-d);font-weight:600}
+</style>
+</head>
+<body>
+  <main class="phone" data-component-id="recordings-offline">
+    <div class="statusbar"><span>9:41</span><div class="dots"><span></span><span></span><span></span></div></div>
+    <header>
+      <div class="htitle">
+        <button class="backbtn" aria-label="Back"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+        <h1>Recordings</h1>
+      </div>
+      <span class="badge offline"><span class="dot"></span>Offline</span>
+    </header>
+
+    <div class="scroll">
+      <div class="offbar" data-component-id="offline-info">
+        <span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/><line x1="2" y1="2" x2="22" y2="22"/></svg></span>
+        Playback works offline. Pending recordings will transcribe automatically once you reconnect.
+      </div>
+
+      <div class="listhdr">
+        <span class="n">12 recordings · 3 pending</span>
+        <span class="transcribe-all disabled" aria-disabled="true"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><line x1="2" y1="2" x2="22" y2="22"/></svg>Offline</span>
+      </div>
+
+      <!-- Pending (offline: Transcribe disabled + hint) -->
+      <div class="card" data-component-id="card-pending">
+        <div class="top">
+          <div class="meta"><div class="ttl">Field interview</div><div class="sub">Today · 8:40 AM · 3:47</div></div>
+          <span class="pill pending"><span class="d"></span>Pending</span>
+        </div>
+        <div class="player"><span class="playbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20"/></svg></span><div class="track"><div class="fill" style="width:0"></div></div><span class="time">0:00 / 3:47</span></div>
+        <div class="preview muted">Recorded offline — not transcribed yet.</div>
+        <div class="actions">
+          <button class="act transcribe-off" disabled aria-disabled="true" data-component-id="transcribe-button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>Transcribe</button>
+          <span class="offhint spacer"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><line x1="2" y1="2" x2="22" y2="22"/></svg>Connect to transcribe</span>
+          <button class="act danger" aria-label="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg></button>
+        </div>
+      </div>
+
+      <!-- Pending 2 -->
+      <div class="card">
+        <div class="top">
+          <div class="meta"><div class="ttl">Voice memo</div><div class="sub">Today · 8:05 AM · 0:41</div></div>
+          <span class="pill pending"><span class="d"></span>Pending</span>
+        </div>
+        <div class="player"><span class="playbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20"/></svg></span><div class="track"><div class="fill" style="width:0"></div></div><span class="time">0:00 / 0:41</span></div>
+        <div class="preview muted">Recorded offline — not transcribed yet.</div>
+        <div class="actions">
+          <button class="act transcribe-off" disabled aria-disabled="true"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>Transcribe</button>
+          <span class="offhint spacer"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><line x1="2" y1="2" x2="22" y2="22"/></svg>Connect to transcribe</span>
+          <button class="act danger" aria-label="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg></button>
+        </div>
+      </div>
+
+      <!-- Done (already transcribed, viewable offline) -->
+      <div class="card">
+        <div class="top">
+          <div class="meta"><div class="ttl">సైట్ నోట్స్ · Site notes</div><div class="sub">Yesterday · 6:02 PM · 0:52</div></div>
+          <span class="pill done"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Done</span>
+        </div>
+        <div class="player"><span class="playbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20"/></svg></span><div class="track"><div class="fill" style="width:0"></div></div><span class="time">0:00 / 0:52</span></div>
+        <div class="preview">రేపటి డెలివరీకి కావలసిన సామగ్రి జాబితా చేయండి. మూడు ప్యాలెట్లు అవసరం.</div>
+        <div class="actions">
+          <button class="act"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Copy</button>
+          <button class="act spacer danger" aria-label="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg></button>
+        </div>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

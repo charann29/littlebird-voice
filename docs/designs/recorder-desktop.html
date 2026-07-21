@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Warble — Desktop Layout</title>
+<meta name="description" content="Desktop responsive layout: two-pane workspace with a sidebar recordings list, a large centered recorder with waveform and live transcript, online status, and language chips." />
+<!-- DESIGN SYSTEM: same tokens, desktop two-pane. Sidebar #0b1220, main centered recorder. -->
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{--bg:#020617;--card:#0f172a;--card2:#111a2e;--sidebar:#0a0f1d;--border:#1e293b;--border2:#334155;
+    --indigo:#4f46e5;--indigo-hi:#6366f1;--green:#22c55e;--green-d:#4ade80;--yellow:#eab308;--red:#ef4444;
+    --amber:#f59e0b;--amber-d:#fbbf24;--white:#f8fafc;--t300:#cbd5e1;--t400:#94a3b8;--t500:#64748b;--t600:#475569}
+  html,body{height:100%}
+  body{background:var(--bg);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif;color:var(--white);-webkit-font-smoothing:antialiased;min-height:100vh}
+  .app{display:grid;grid-template-columns:300px 1fr;min-height:100vh}
+
+  /* sidebar */
+  .side{background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:20px 16px}
+  .brand{display:flex;align-items:center;gap:11px;padding:4px 6px 18px}
+  .brand .logo{width:36px;height:36px;border-radius:11px;background:linear-gradient(150deg,var(--indigo),#7c3aed);display:flex;align-items:center;justify-content:center;box-shadow:0 6px 16px -6px rgba(79,70,229,.7)}
+  .brand h1{font-size:18px;font-weight:700;letter-spacing:-.02em}.brand .sub{font-size:11px;color:var(--t500);margin-top:1px}
+  .newbtn{display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(160deg,var(--indigo-hi),var(--indigo));color:#fff;border:none;border-radius:12px;font-size:14px;font-weight:700;padding:12px;cursor:pointer;box-shadow:0 8px 20px -6px rgba(79,70,229,.6);margin-bottom:16px}
+  .side .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--t600);font-weight:700;padding:8px 8px 8px}
+  .item{display:flex;align-items:center;gap:11px;padding:10px 10px;border-radius:11px;cursor:pointer}
+  .item:hover{background:var(--card)}.item.active{background:var(--card);border:1px solid var(--border)}
+  .item .ci{width:34px;height:34px;border-radius:10px;background:var(--card2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--t400);flex-shrink:0}
+  .item .cm{flex:1;min-width:0}.item .cm .t{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.item .cm .s{font-size:11px;color:var(--t500);margin-top:1px}
+  .sdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}.sdot.pend{background:var(--amber)}.sdot.done{background:var(--green)}.sdot.tr{background:var(--indigo-hi)}
+  .side .foot{margin-top:auto;padding-top:14px}
+  .installmini{display:flex;align-items:center;gap:10px;background:rgba(79,70,229,.12);border:1px solid rgba(99,102,241,.35);border-radius:12px;padding:11px 12px;cursor:pointer}
+  .installmini .ic{color:#c7d2fe}.installmini .t{font-size:12.5px;font-weight:700}.installmini .d{font-size:11px;color:var(--t400)}
+
+  /* main */
+  .main{display:flex;flex-direction:column}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:18px 32px;border-bottom:1px solid var(--border)}
+  .topbar h2{font-size:16px;font-weight:700;letter-spacing:-.02em}
+  .badge{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid;color:var(--green-d);background:rgba(34,197,94,.10);border-color:rgba(34,197,94,.3)}
+  .badge .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.5)}70%{box-shadow:0 0 0 7px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+
+  .canvas{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;gap:30px}
+  .prompt{text-align:center}.prompt h3{font-size:30px;font-weight:700;letter-spacing:-.02em}.prompt p{margin-top:10px;font-size:15px;color:var(--t500)}
+
+  .micwrap{position:relative;display:flex;align-items:center;justify-content:center;width:240px;height:240px}
+  .ring{position:absolute;border-radius:50%;border:1px solid rgba(99,102,241,.18)}
+  .ring.r1{width:240px;height:240px}.ring.r2{width:180px;height:180px;border-color:rgba(99,102,241,.28)}
+  .mic{position:relative;width:120px;height:120px;border-radius:50%;background:linear-gradient(160deg,var(--indigo-hi),var(--indigo));color:#fff;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;box-shadow:0 22px 50px -12px rgba(79,70,229,.75),inset 0 1px 0 rgba(255,255,255,.25);transition:transform .15s ease}
+  .mic:hover{transform:scale(1.04)}.mic:active{transform:scale(.96)}
+  .mic-hint{font-size:14px;color:var(--t600);font-weight:500}
+
+  .langs{display:flex;gap:12px}
+  .chip{padding:11px 20px;border-radius:999px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--card);color:var(--t400)}
+  .chip.active{border-color:rgba(79,70,229,.55);background:rgba(79,70,229,.15);color:#c7d2fe}
+  .chip .g{font-size:12px;color:var(--t600);margin-left:7px;font-weight:500}.chip.active .g{color:#a5b4fc}
+
+  @media (max-width:860px){.app{grid-template-columns:1fr}.side{display:none}}
+</style>
+</head>
+<body>
+  <div class="app" data-component-id="desktop-workspace">
+    <aside class="side" data-component-id="sidebar">
+      <div class="brand">
+        <div class="logo" aria-hidden="true"><svg width="21" height="21" viewBox="0 0 24 24" fill="#fff"><path d="M21 6c-1.6-.4-3.2 0-4.5 1C15 5.3 12.6 4.5 10 5 6 5.7 3 9 3 13c0 3 1.8 5.3 4 6l-1 3 3-1.2c.7.1 1.4.2 2 .2 4.4 0 8-3.1 8-7 0-1 0-1.9-.4-2.7L21 9V6ZM9 12a1.2 1.2 0 1 1 0-2.4A1.2 1.2 0 0 1 9 12Z"/></svg></div>
+        <div><h1>Warble</h1><div class="sub">Voice notes, even offline</div></div>
+      </div>
+      <button class="newbtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>New recording</button>
+      <div class="lbl">Recent</div>
+      <div class="item active"><div class="ci"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20"/></svg></div><div class="cm"><div class="t">Team standup</div><div class="s">Today · 1:24</div></div><span class="sdot tr"></span></div>
+      <div class="item"><div class="ci"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20"/></svg></div><div class="cm"><div class="t">Field interview</div><div class="s">Today · 3:47 · Pending</div></div><span class="sdot pend"></span></div>
+      <div class="item"><div class="ci"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20"/></svg></div><div class="cm"><div class="t">సైట్ నోట్స్ · Site notes</div><div class="s">Yesterday · 0:52</div></div><span class="sdot done"></span></div>
+      <div class="item"><div class="ci"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20"/></svg></div><div class="cm"><div class="t">बैठक के नोट्स</div><div class="s">Mon · 2:08</div></div><span class="sdot done"></span></div>
+      <div class="foot">
+        <div class="installmini" data-component-id="install-affordance"><span class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 21h14"/></svg></span><div><div class="t">Install app</div><div class="d">Works offline</div></div></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar"><h2>New recording</h2><span class="badge"><span class="dot"></span>Online</span></div>
+      <div class="canvas">
+        <div class="prompt"><h3>Tap to speak</h3><p>Talk in English, Hindi or Telugu — your words transcribe live.</p></div>
+        <div class="micwrap" data-component-id="mic-button">
+          <div class="ring r1"></div><div class="ring r2"></div>
+          <button class="mic" aria-label="Start recording"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg></button>
+        </div>
+        <div class="mic-hint">Press the mic or hit Space to start</div>
+        <div class="langs">
+          <button class="chip active">English</button>
+          <button class="chip">हिन्दी<span class="g">Hindi</span></button>
+          <button class="chip">తెలుగు<span class="g">Telugu</span></button>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
